@@ -96,11 +96,17 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ id: submission.id }, { status: 201 });
   } catch (err) {
+    console.error("Submission analysis failed", err);
     await prisma.submission.update({
       where: { id: submission.id },
       data: { status: "failed" },
     });
-    const message = err instanceof Error ? err.message : "analysis failed";
+    const message =
+      err instanceof z.ZodError
+        ? "分析結果格式暫時不完整，請稍後再試。"
+        : err instanceof Error
+          ? err.message
+          : "analysis failed";
     return NextResponse.json({ error: message, submissionId: submission.id }, { status: 500 });
   }
 }

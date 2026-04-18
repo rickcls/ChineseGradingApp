@@ -13,19 +13,27 @@ const ErrorItem = z.object({
   char_offset_end: z.number().int().positive(),
   suggestion: z.string().min(1),
   severity: z.number().int().min(1).max(3),
-  confidence: z.number().min(0).max(1).default(0.8),
+  confidence: z.number().min(0).max(1),
 });
 
 const AnalysisOutput = z.object({
-  scores: z.record(z.string(), z.number()),
-  overall_score: z.number(),
+  scores: z.record(z.string(), z.coerce.number()),
+  overall_score: z.coerce.number(),
   coach_feedback: z.string().min(1),
   strengths: z.array(z.string()).default([]),
   revision_priorities: z.array(z.string()).min(1).max(3),
-  errors: z.array(ErrorItem),
+  errors: z.array(z.unknown()).default([]),
 });
 
-export type AnalysisResult = z.infer<typeof AnalysisOutput>;
+export type AnalysisError = z.infer<typeof ErrorItem>;
+export type AnalysisResult = {
+  scores: Record<string, number>;
+  overall_score: number;
+  coach_feedback: string;
+  strengths: string[];
+  revision_priorities: string[];
+  errors: AnalysisError[];
+};
 
 export type AnalysisInput = {
   text: string;
@@ -114,7 +122,25 @@ export async function analyzeSubmission(input: AnalysisInput): Promise<{
   } catch (e) {
     throw new Error(`Model output was not valid JSON: ${(e as Error).message}`);
   }
-  const result = AnalysisOutput.parse(parsed);
+  const parsedOutput = AnalysisOutput.parse(parsed);
+  const result: AnalysisResult = {
+    ...parsedOutput,
+    coach_feedback: parsedOutput.coach_feedback.trim(),
+    strengths: parsedOutput.strengths.map((item) => item.trim()).filter(Boolean),
+    revision_priorities: parsedOutput.revision_priorities.map((item) => item.trim()).filter(Boolean).slice(0, 3),
+    errors: parsedOutput.errors
+      .map((item) => ErrorItem.safeParse(normalizeErrorItem(item)))
+      .filter((item): item is { success: true; data: z.infer<typeof ErrorItem> } => item.success)
+      .map((item) => item.data),
+  };
+
+  if (result.coach_feedback.length === 0) {
+    result.coach_feedback = "我已讀完這篇文章。先別急著一次改完，挑一兩個最關鍵的位置慢慢整理就好。";
+  }
+
+  if (result.revision_priorities.length === 0) {
+    result.revision_priorities = ["先挑一段最想說清楚的內容，整理句子和細節，再慢慢擴展到全文。"];
+  }
 
   result.errors = result.errors.filter((e) => {
     if (!validCategory(e.category, e.subcategory)) return false;
@@ -139,3 +165,57 @@ export async function analyzeSubmission(input: AnalysisInput): Promise<{
 }
 
 export const ALL_CATEGORIES = TAXONOMY.map((t) => t.category);
+
+function normalizeErrorItem(value: unknown) {
+  const item = isRecord(value) ? value : {};
+
+  return {
+    category: normalizeString(item.category),
+    subcategory: normalizeString(item.subcategory),
+    evidence_span: normalizeString(item.evidence_span),
+    char_offset_start: nonNegativeInteger(item.char_offset_start, 0),
+    char_offset_end: positiveInteger(item.char_offset_end, 1),
+    suggestion: normalizeString(item.suggestion),
+    severity: boundedInteger(item.severity, 1, 3, 1),
+    confidence: boundedNumber(item.confidence, 0, 1, 0.8),
+  };
+}
+
+function boundedInteger(value: unknown, min: number, max: number, fallback: number) {
+  return Math.round(boundedNumber(value, min, max, fallback));
+}
+
+function nonNegativeInteger(value: unknown, fallback: number) {
+  const numeric = toFiniteNumber(value);
+  if (numeric === null) return fallback;
+  return Math.max(0, Math.floor(numeric));
+}
+
+function positiveInteger(value: unknown, fallback: number) {
+  const numeric = toFiniteNumber(value);
+  if (numeric === null) return fallback;
+  return Math.max(1, Math.floor(numeric));
+}
+
+function boundedNumber(value: unknown, min: number, max: number, fallback: number) {
+  const numeric = toFiniteNumber(value);
+  if (numeric === null) return fallback;
+  return Math.min(max, Math.max(min, numeric));
+}
+
+function toFiniteNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function normalizeString(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
