@@ -1,0 +1,3 @@
+# ChineseGradingApp
+
+Initial project setup.
