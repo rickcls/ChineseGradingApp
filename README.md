@@ -6,7 +6,7 @@ Phase 1 MVP from the implementation plan: typed-text submission → rubric-ancho
 
 - **Next.js 14 (App Router) + TypeScript + Tailwind**
 - **Prisma + Postgres** (Vercel Postgres / Neon / Supabase — any works)
-- **Anthropic Claude** for analysis (JSON-structured, rubric-anchored, tutor-voice)
+- **OpenRouter** (recommended) or Anthropic direct for analysis
 - Cookie-based anonymous user (one row per browser) — swap in NextAuth when you're ready
 
 ## Scope vs. the plan
@@ -51,8 +51,14 @@ Copy its `DATABASE_URL` (make sure it ends with `?sslmode=require`).
 - Framework preset: Next.js (auto-detected)
 - **Environment Variables**:
   - `DATABASE_URL` — from step 2
-  - `ANTHROPIC_API_KEY` — from https://console.anthropic.com/
+  - `OPENROUTER_API_KEY` — from https://openrouter.ai/keys
+  - (optional) `OPENROUTER_HTTP_REFERER`, `OPENROUTER_APP_NAME`
+  - (optional fallback) `ANTHROPIC_API_KEY` — from https://console.anthropic.com/
   - (optional) `ANALYSIS_MODEL`, `COACH_MODEL`
+
+Recommended low-cost defaults:
+- `ANALYSIS_MODEL=google/gemini-2.5-flash`
+- `COACH_MODEL=anthropic/claude-3.5-haiku`
 
 ### 4. Create the database schema
 
@@ -77,7 +83,7 @@ Or add a one-off deploy hook / run this from Vercel's CLI. `prisma generate` run
 
 ```bash
 cp .env.example .env
-# fill in DATABASE_URL and ANTHROPIC_API_KEY
+# fill in DATABASE_URL and OPENROUTER_API_KEY
 npm install
 npx prisma db push
 npm run db:seed
@@ -95,4 +101,4 @@ Open http://localhost:3000.
 
 ## Cost notes
 
-Each submission calls Claude once. With Opus 4.7 on a ~500-character essay, expect ~¥0.5–¥2 per analysis. For cost optimization, route short essays or revision feedback to `COACH_MODEL` (Haiku 4.5 by default).
+Each submission calls one LLM request. Cost depends on your OpenRouter model choice and token usage. The default setup uses `google/gemini-2.5-flash` for analysis and `anthropic/claude-3.5-haiku` for coaching as a lower-cost balance.

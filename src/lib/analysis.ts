@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getAnthropic, ANALYSIS_MODEL } from "./anthropic";
+import { generateModelText, ANALYSIS_MODEL } from "./anthropic";
 import { DEFAULT_WRITING_RUBRIC, rubricAsMarkdown, totalMaxScore, RubricDef } from "./rubric";
 import { TAXONOMY, taxonomyAsMarkdown, validCategory } from "./taxonomy";
 
@@ -100,21 +100,14 @@ export async function analyzeSubmission(input: AnalysisInput): Promise<{
   rubric: RubricDef;
 }> {
   const rubric = DEFAULT_WRITING_RUBRIC;
-  const anthropic = getAnthropic();
-
-  const msg = await anthropic.messages.create({
+  const rawText = await generateModelText({
     model: ANALYSIS_MODEL,
-    max_tokens: 4096,
+    maxTokens: 4096,
     temperature: 0.2,
     system: buildSystemPrompt(rubric),
-    messages: [{ role: "user", content: buildUserPrompt(input) }],
+    user: buildUserPrompt(input),
   });
-
-  const textBlock = msg.content.find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    throw new Error("Model returned no text content");
-  }
-  const raw = extractJson(textBlock.text);
+  const raw = extractJson(rawText);
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
