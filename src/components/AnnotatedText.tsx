@@ -45,19 +45,33 @@ export function AnnotatedText({ text, errors }: { text: string; errors: ErrorLik
 
   return (
     <div className="space-y-4">
-      <div className="prose-zh whitespace-pre-wrap rounded-lg border border-border bg-white p-5 font-serif">
+      <div className="flex flex-wrap gap-2 text-xs text-muted">
+        <span className="pill">點一下有底線的字句，就能看到導師建議</span>
+        <span className="pill pill-positive">綠色：已接近通順</span>
+        <span className="pill pill-warm">珊瑚色：值得優先整理</span>
+        <span className="pill">藍色：結構或表達可以再推進</span>
+      </div>
+
+      <div className="prose-zh whitespace-pre-wrap rounded-[1.35rem] border border-border/80 bg-white/90 p-5 font-serif shadow-soft sm:p-6">
         {nodes}
       </div>
       {active ? (
-        <div className="rounded-lg border-l-4 border-accent bg-white p-4 text-sm shadow-sm">
-          <div className="mb-1 text-xs text-muted">
+        <div className="rounded-[1.2rem] border border-accent/20 bg-accent/5 p-4 text-sm shadow-soft">
+          <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted">
+            <span className="pill bg-white/80">
+              建議重點
+            </span>
+            <span>
             {active.category}・{active.subcategory}
             {active.ocrSuspect ? "・OCR 可能讀錯" : ""}
+            </span>
           </div>
-          <div className="text-ink">{active.suggestion}</div>
+          <div className="leading-7 text-ink">{active.suggestion}</div>
         </div>
       ) : (
-        <div className="text-xs text-muted">點擊高亮字句可看到導師的建議。</div>
+        <div className="rounded-[1.1rem] border border-border/70 bg-white/60 px-4 py-3 text-xs text-muted">
+          先從一兩個高亮位置開始看就好，不需要一次把所有問題都改完。
+        </div>
       )}
     </div>
   );

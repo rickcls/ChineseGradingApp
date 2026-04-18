@@ -2,13 +2,163 @@
 @tailwind components;
 @tailwind utilities;
 
-html, body { background: #fafaf7; color: #1a1a1a; }
-body { font-family: ui-sans-serif, system-ui, -apple-system, "PingFang HK", "PingFang SC", "Noto Sans SC", sans-serif; }
+@layer base {
+  :root {
+    color-scheme: light;
+  }
 
-.prose-zh { line-height: 1.9; font-size: 1.05rem; }
-.prose-zh p { margin-bottom: 1em; }
+  html {
+    background: #faf7f2;
+    color: #24324a;
+  }
 
-mark.err-1 { background: #fff3cd; color: inherit; border-bottom: 2px solid #ffd666; padding: 0 2px; border-radius: 2px; }
-mark.err-2 { background: #ffe0b2; color: inherit; border-bottom: 2px solid #ff9800; padding: 0 2px; border-radius: 2px; }
-mark.err-3 { background: #ffcdd2; color: inherit; border-bottom: 2px solid #e57373; padding: 0 2px; border-radius: 2px; }
-mark.ocr-suspect { background: repeating-linear-gradient(45deg,#eef,#eef 4px,#dde 4px,#dde 8px); }
+  body {
+    min-height: 100vh;
+    font-family: Inter, "Noto Sans SC", "PingFang HK", "PingFang SC", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    background:
+      radial-gradient(circle at top left, rgba(59, 91, 165, 0.11), transparent 28%),
+      radial-gradient(circle at top right, rgba(232, 137, 107, 0.1), transparent 26%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(250, 247, 242, 0.98)),
+      repeating-linear-gradient(0deg, rgba(71, 94, 137, 0.025) 0, rgba(71, 94, 137, 0.025) 1px, transparent 1px, transparent 7px),
+      repeating-linear-gradient(90deg, rgba(71, 94, 137, 0.018) 0, rgba(71, 94, 137, 0.018) 1px, transparent 1px, transparent 8px);
+    background-attachment: fixed;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  * {
+    border-color: theme("colors.border");
+  }
+
+  ::selection {
+    background: rgba(59, 91, 165, 0.16);
+    color: #24324a;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: "Noto Serif SC", "Source Han Serif SC", "Songti SC", Georgia, ui-serif, serif;
+    letter-spacing: -0.01em;
+  }
+
+  a,
+  button,
+  input,
+  select,
+  textarea {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible {
+    outline: 2px solid rgba(59, 91, 165, 0.35);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .paper-panel {
+    @apply rounded-[1.25rem] border border-border/80 bg-white/80 shadow-soft backdrop-blur-sm;
+  }
+
+  .paper-panel-strong {
+    @apply rounded-[1.25rem] border border-line/70 bg-white/90 shadow-float backdrop-blur-sm;
+  }
+
+  .paper-panel-muted {
+    @apply rounded-[1.25rem] border border-border/70 bg-cream/80 shadow-soft backdrop-blur-sm;
+  }
+
+  .section-kicker {
+    @apply text-[0.68rem] font-semibold uppercase tracking-[0.28em] text-accent/70;
+  }
+
+  .field-label {
+    @apply mb-2 block text-sm font-medium text-ink/80;
+  }
+
+  .field-input {
+    @apply w-full rounded-2xl border border-border/80 bg-white/90 px-4 py-3 text-sm text-ink shadow-sm transition placeholder:text-muted/70 focus:border-accent/60 focus:outline-none focus:ring-4 focus:ring-accent/10;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-full bg-accent px-5 py-2.5 text-sm font-medium text-white shadow-soft transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:bg-accent/50;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded-full border border-border/80 bg-white/80 px-5 py-2.5 text-sm font-medium text-ink shadow-sm transition hover:border-accent/40 hover:text-accent;
+  }
+
+  .pill {
+    @apply inline-flex items-center gap-2 rounded-full border border-border/80 bg-white/70 px-3 py-1.5 text-xs font-medium text-ink/75;
+  }
+
+  .pill-positive {
+    @apply border-good/30 bg-good/10 text-good;
+  }
+
+  .pill-warm {
+    @apply border-coral/30 bg-coral/10 text-coral;
+  }
+
+  .calligraphy-accent {
+    position: relative;
+  }
+
+  .calligraphy-accent::after {
+    content: "";
+    position: absolute;
+    left: -0.35rem;
+    top: 0.15rem;
+    width: 2.6rem;
+    height: 0.9rem;
+    border-radius: 999px;
+    background: linear-gradient(90deg, rgba(232, 137, 107, 0.25), rgba(59, 91, 165, 0.1));
+    filter: blur(10px);
+    pointer-events: none;
+  }
+}
+
+.prose-zh {
+  line-height: 2;
+  font-size: 1.05rem;
+}
+
+.prose-zh p {
+  margin-bottom: 1em;
+}
+
+mark.err-1 {
+  background: linear-gradient(180deg, rgba(107, 163, 104, 0.08), rgba(107, 163, 104, 0.24));
+  color: inherit;
+  border-bottom: 2px solid rgba(107, 163, 104, 0.7);
+  padding: 0 2px;
+  border-radius: 6px;
+}
+
+mark.err-2 {
+  background: linear-gradient(180deg, rgba(232, 137, 107, 0.06), rgba(232, 137, 107, 0.22));
+  color: inherit;
+  border-bottom: 2px solid rgba(232, 137, 107, 0.75);
+  padding: 0 2px;
+  border-radius: 6px;
+}
+
+mark.err-3 {
+  background: linear-gradient(180deg, rgba(59, 91, 165, 0.08), rgba(59, 91, 165, 0.22));
+  color: inherit;
+  border-bottom: 2px solid rgba(59, 91, 165, 0.7);
+  padding: 0 2px;
+  border-radius: 6px;
+}
+
+mark.ocr-suspect {
+  background-image:
+    linear-gradient(180deg, rgba(59, 91, 165, 0.08), rgba(59, 91, 165, 0.16)),
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.55) 4px, rgba(221, 229, 244, 0.8) 4px, rgba(221, 229, 244, 0.8) 8px);
+}

@@ -13,6 +13,7 @@ const Body = z.object({
   gradeLevel: z.string().optional(),
   taskPrompt: z.string().optional(),
   genre: z.string().optional(),
+  source: z.enum(["typed", "photo", "scan"]).optional(),
 });
 
 export async function POST(req: Request) {
@@ -31,7 +32,7 @@ export async function POST(req: Request) {
     data: {
       userId: user.id,
       type: "writing",
-      source: "typed",
+      source: parsed.data.source || "typed",
       rawText: parsed.data.text,
       verifiedText: parsed.data.text,
       status: "verified",
