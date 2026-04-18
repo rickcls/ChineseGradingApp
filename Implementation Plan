@@ -1,0 +1,192 @@
+AI Chinese Learning Coach — Implementation Plan
+Below is a practical, opinionated plan. I've tried to make every recommendation concrete enough to act on, and I've woven your constraints (tutor-voice, OCR-uncertainty isolation, evidence-based weakness detection) into the design itself rather than listing them as afterthoughts.
+
+1. System Architecture
+A modular monolith is the right starting point — not microservices. You get clean separation of concerns without the operational overhead, and you can peel services off later if needed.
+High-level components:
+
+Web client (Next.js) — student-facing, mobile-responsive from day one
+API layer (FastAPI) — REST + a few streaming endpoints for live AI feedback
+Async worker pool (Celery/ARQ) — handles OCR calls, LLM calls, and weakness recomputation
+Postgres — all structured data
+Redis — cache + job queue broker
+Object storage (S3 / R2 / Aliyun OSS) — uploaded images, with signed URLs
+External AI services — LLM provider(s) + OCR provider
+Observability — Sentry for errors, PostHog for product analytics, simple logging to start
+
+The critical architectural decision: submissions flow through a pipeline, not a single request. Upload → preprocess → OCR (if image) → verification → analysis → error extraction → weakness update. Each stage writes state to the DB so you can retry, inspect, and audit. Students see progress as it happens rather than staring at a spinner.
+
+2. Database Design
+Postgres. Here are the core tables with the fields that matter; I've omitted obvious ones like timestamps and soft-delete flags.
+users — id, email, display_name, grade_level, school (nullable), locale, created_at
+submissions — id, user_id, type (writing | reading | revision), source (typed | photo | scan), image_url (nullable), raw_ocr_text, verified_text, ocr_confidence_overall, ocr_char_confidences (jsonb), status (uploaded/ocr_done/verified/analyzed/failed), task_id (optional link to a writing prompt)
+analyses — id, submission_id, rubric_id, scores (jsonb: e.g. {content: 18/25, structure: 15/20, ...}), overall_score, model_name, model_version, prompt_version, coach_feedback_text, created_at
+errors — id, submission_id, analysis_id, category, subcategory, evidence_span (text), char_offset_start, char_offset_end, suggestion, severity (1–3), ocr_suspect (boolean), confidence (0–1)
+The ocr_suspect flag is the single most important column for your "OCR uncertainty ≠ weakness" constraint. Any error whose evidence span overlaps low-confidence OCR characters is flagged, and the weakness aggregator excludes these rows entirely.
+weakness_profiles — id, user_id, category, subcategory, evidence_count, evidence_submission_ids (array), severity_ewma (exponentially weighted moving average), first_seen_at, last_seen_at, status (watching | confirmed | improving | resolved)
+revision_sessions — id, user_id, original_submission_id, revised_text, targeted_error_ids (array), improvement_delta (jsonb)
+rubrics — id, grade_level, type, rubric_json (criteria + weights + descriptors per score band)
+writing_tasks — id, grade_level, genre, prompt_text, guidance (teacher-authored), suggested_length
+feedback_events — id, user_id, target_type (error | suggestion), target_id, reaction (helpful | wrong | confusing), note — this is gold for improving prompts and calibrating the model over time.
+
+3. Frontend Pages
+The UX should feel like a patient tutor, not a grading machine. Every page should communicate progress and agency.
+The student lands on a Dashboard that shows a one-sentence coach greeting, current focus areas (at most 2–3, never a wall of weaknesses), a streak or consistency indicator, and recent submissions. No shame metrics.
+New Submission offers three paths: paste/type, upload photo, or continue from a prompt. If a prompt is chosen, the rubric is shown upfront so the student writes toward it.
+OCR Verification is a dedicated step for photo submissions. The original image sits alongside the extracted text, low-confidence characters are highlighted, and the student can tap-to-correct. This page is where you earn trust. Make it fast and kind.
+Submission Detail is an annotated view — the essay with inline error chips, grouped by category in a sidebar, each expandable to show the coach's suggestion in tutor-voice. Strengths are shown too, not just errors. A "Start Revision" button leads to…
+Revision Workspace — side-by-side original and editable revision, with the targeted errors checklist. The AI offers Socratic hints ("This paragraph's topic sentence — what's the one thing you want the reader to believe?") rather than rewrites. When the student submits the revision, it's analyzed again and the delta is shown.
+Weakness Report is a longitudinal view — categories with trend lines, example evidence, and "what to practice next" recommendations. Crucially, weaknesses that are improving are celebrated explicitly.
+Reading Practice (Phase 3) presents a passage, comprehension questions, and after submission, analysis of the student's answers against a rubric.
+Profile / Settings — grade level, data controls, notifications.
+
+4. Backend Services
+Even as a modular monolith, organize code around these domains:
+
+Auth — JWT, email/password to start, SSO later
+Submission — upload intake, status tracking, image handling
+OCR orchestration — calls external OCR, post-processes confidences, writes to submissions
+Analysis orchestration — loads rubric, builds prompt, calls LLM, parses structured output, writes analyses + errors
+Weakness aggregation — triggered after each analysis; updates weakness_profiles; separately runnable as a batch job for backfills
+Revision — creates revision session, re-analyzes, computes deltas
+Content — rubrics, writing tasks, reading passages (admin-curated)
+Feedback capture — student reactions to AI output
+
+One architectural rule worth stating: the weakness aggregator must be idempotent and independent of the analysis step. You'll want to re-run it when you change taxonomy or rules, without re-calling the LLM.
+
+5. OCR and AI Workflow
+This is where your product philosophy either shines or breaks down. The workflow below is designed around your constraint that OCR uncertainty must never become student weakness.
+Image path:
+
+Client-side: compress, rotate, basic auto-crop hint
+Server: deskew, denoise, contrast normalize (OpenCV)
+Call OCR provider (Baidu OCR has the best Chinese handwriting accuracy in my experience; Tencent is a close second; Google Vision is weaker on handwritten 简体 but fine on printed). Request per-character confidence if supported.
+Build a confidence map: characters below ~0.75 are "suspect," runs of 3+ suspect chars are "high-suspect regions"
+Show verification UI — student confirms or corrects
+The verified_text is what goes to analysis; the original OCR text is kept for audit
+
+Analysis path (writing):
+
+Load the rubric for the student's grade level and the task genre
+Build a structured prompt that asks the LLM for (a) rubric scores with justification, (b) a list of errors in a strict JSON schema, (c) a coach-voice overall feedback paragraph, (d) 2–3 revision priorities
+Call the LLM with JSON-mode / tool-use for reliable parsing
+For each error, compute whether its span overlaps OCR-suspect regions. If yes → set ocr_suspect = true. These errors are shown to the student framed as "Double-check this — we weren't sure we read it right" rather than "You made an error."
+Write results; trigger weakness aggregation
+
+Prompt design principles that matter specifically for this product:
+
+Give the model the rubric descriptors verbatim so its scores are anchored
+Require evidence spans (character offsets or exact quotes) for every error — no vague "your structure is weak"
+Explicitly instruct tutor-voice: encouraging, specific, ask-before-telling
+Forbid full rewrites in feedback (this is the anti-cheating guardrail at the prompt level)
+
+For the coaching/revision layer, a smaller, faster model is fine. Reserve your strongest model for the initial analysis.
+
+6. Weakness Detection Logic
+Start with a taxonomy you can defend to a Chinese teacher. A reasonable starting set:
+
+1. 字詞
+錯別字 — 錯寫、漏寫或多寫筆畫。
+
+形近字 — 字形相近而混淆。
+
+同音字 — 讀音相同但意義不同。
+
+詞語搭配不當 — 動賓或修飾語組合不自然。
+
+2. 語法
+語序 — 句子成分排列順序錯誤。
+
+成分殘缺 — 缺少主語、謂語或賓語等核心成分。
+
+搭配不當 — 詞與詞之間的邏輯關係不成立。
+
+句式雜糅 — 兩種句式混雜使用，導致結構混亂。
+
+3. 標點
+逗號誤用 — 停頓位置不當。
+
+句號/問號混淆 — 陳述句與疑問句語氣不分。
+
+引號使用 — 引用對話或特定稱謂符號不規範。
+
+4. 結構
+中心不明 — 文章缺乏核心主題。
+
+段落銜接 — 段與段之間缺乏過渡與邏輯聯繫。
+
+詳略失當 — 重點不夠突出，次要內容過於冗長。
+
+開頭/結尾 — 起筆平淡或收結草率。
+
+5. 內容
+材料單薄 — 內容空洞，缺乏具體實例支撐。
+
+脫離題意 — 離題或未能針對要求作答。
+
+立意平淡 — 觀點缺乏深度或新意。
+
+6. 表達
+修辭貧乏 — 缺乏比喻、擬人等文學手法。
+
+用詞單一 — 重複使用相同詞彙，語言不夠豐富。
+
+語言乾澀 — 敘述生硬，缺乏感染力。
+
+The aggregation rule, concretely:
+For each (user, category) pair, maintain evidence_count and a recency-weighted severity score. Use an EWMA: severity_ewma = 0.3 * new_severity + 0.7 * old_severity on each new submission (only over submissions where the student's non-OCR-suspect errors are evaluated).
+A category moves from watching → confirmed when both: evidence_count ≥ 3 AND the errors appear across ≥ 2 distinct submissions on ≥ 2 distinct days. This protects against one-bad-day bias.
+A category moves to improving when the last 2 submissions show ≥50% reduction in that category's error rate. It moves to resolved when 3 consecutive submissions show zero errors in the category.
+What's excluded from aggregation:
+
+Every error with ocr_suspect = true
+Errors the student flagged as "not my mistake" in feedback
+Errors in submissions explicitly marked as drafts/practice
+
+The UI should only ever surface confirmed weaknesses as "focus areas." Everything else is invisible to the student — this prevents the product from feeling like a constant criticism engine, and it means early submissions don't traumatize the student with a flood of red flags.
+
+7. MVP Roadmap
+Phase 0 — Foundations (2 weeks): auth, user model, rubric seed data for one grade level (pick the most valuable — likely 初三 for 中考 or 高三 for 高考 depending on your target), infra skeleton, CI/CD, one deployed environment.
+Phase 1 — Writing MVP (6–8 weeks): typed-text submission, analysis pipeline, annotated feedback view, revision workspace, basic dashboard, feedback-capture widget. Ship this to 10–20 real students before building more.
+Phase 2 — Handwriting (4–6 weeks): photo upload, OCR integration, verification UX, OCR-suspect propagation into error records. The analysis pipeline doesn't change — only the input method.
+Phase 3 — Weakness Engine (3–4 weeks): aggregation service, weakness report UI, focus-area recommendations on the dashboard. Most of this can be built earlier at low fidelity, but polishing needs real submission volume, so sequence it here.
+Phase 4 — Reading Analysis (4–6 weeks): passage + questions flow, answer rubric, analysis prompts tuned for comprehension vs. composition.
+Phase 5 — Polish & Scale: parent/teacher views, assignment mode, notifications, mobile app wrapper, usage-based optimizations.
+Do not skip getting Phase 1 in front of real students. Every architectural decision downstream improves dramatically once you've watched five students use the MVP.
+
+8. Tech Stack Recommendation
+
+Frontend: Next.js (App Router) + TypeScript + Tailwind + shadcn/ui. TanStack Query for server state. Zustand for local UI state.
+Backend: Python 3.12 + FastAPI. Python wins here because your AI/ML tooling, Chinese NLP libraries (jieba, HanLP, pkuseg), and LLM SDKs all live there natively.
+DB / Cache / Queue: Postgres 16, Redis 7, Celery (or ARQ if you prefer async-native).
+Object storage: Cloudflare R2 (cheap egress) or Aliyun OSS if deploying in mainland China.
+LLM: This depends on deployment region. For mainland China: Qwen-Max, DeepSeek, or Doubao — all handle Chinese rubrics excellently and satisfy data residency. For international: Claude or GPT-4-class models. Plan for multi-provider from day one (an abstraction layer of ~100 lines saves you later).
+OCR: Baidu OCR's handwriting endpoint for mainland. Tencent as backup. Azure Document Intelligence if you need international.
+Chinese NLP utilities: jieba for segmentation, HanLP for deeper parsing if needed, pypinyin for pinyin operations.
+Deployment: Docker Compose on a single VPS for MVP. Move to managed Kubernetes (ACK / EKS) only when you have real scaling pressure. Don't over-engineer.
+Observability: Sentry, PostHog, Grafana + Prometheus when you care about infra metrics.
+
+
+9. Development Effort Estimate
+Assuming a small team of 1 full-stack engineer + 1 AI/backend engineer + 1 part-time designer, with a Chinese-language teacher available for rubric review:
+
+Phase 0: 2 weeks
+Phase 1 (Writing MVP): 6–8 weeks
+Phase 2 (Handwriting): 4–6 weeks
+Phase 3 (Weakness Engine): 3–4 weeks
+Phase 4 (Reading): 4–6 weeks
+Phase 5 (Polish): ongoing
+
+Total to a complete product: ~5–6 months. MVP (Phase 0+1) in the market: ~2–2.5 months.
+Solo engineer: roughly double the Phase 1–4 durations. The design and rubric work is not parallelizable beyond a point.
+The non-engineering work that people underestimate: curating rubrics, writing prompt guidelines per grade level, sourcing reading passages with licensing you can defend, and teacher review loops. Budget ~20–30% of total effort for this.
+
+10. Risks and Mitigation
+Handwritten Chinese OCR accuracy. Student handwriting varies wildly. Mitigation: the verification step is non-negotiable; set expectations that OCR is a draft; measure OCR accuracy per-student and adapt UI (tighter threshold for messier writers); never let OCR-suspect characters become weaknesses.
+LLM inconsistency on Chinese grammar judgments. Models occasionally "correct" correct Chinese or miss real errors. Mitigation: rubric-anchored prompting; evidence-span requirement; teacher review sampling (~5% of submissions reviewed by a real teacher for calibration); the feedback_events loop to detect systematic errors and adjust prompts.
+Product drifting toward a cheating tool. The pull is strong — students will ask for rewrites. Mitigation: the analysis layer never outputs a rewritten essay; revision is scaffolded with Socratic prompts; student must write the revision themselves; track "improvement delta" rather than "final score," which rewards learning over polish.
+Discouragement from too much criticism. Early submissions will surface many errors. Mitigation: the watching vs confirmed distinction above; dashboard only shows 2–3 focus areas; always surface strengths; celebrate improvement explicitly; tutor-voice tone calibration enforced at the prompt level.
+Data privacy and PIPL/GDPR compliance. You're handling minors' work. Mitigation: encrypt at rest; signed URLs with short TTLs for images; explicit parental consent flow if you target under-14 users; configurable retention (e.g., auto-delete images after 90 days, keep analyses longer); region-appropriate hosting.
+LLM cost at scale. Analysis per submission can easily cost ¥0.5–¥2. At 1000 daily submissions that's material. Mitigation: multi-tier model routing (strong model for essays, smaller model for revision feedback and coaching text); cache rubric-prompt prefixes; batch non-urgent jobs; offer tiered plans.
+Grade-level calibration drift. A 初一 rubric applied to a 高二 essay will give nonsense. Mitigation: require grade_level on every submission; rubric is loaded by grade+genre; auto-detect mismatches ("this essay seems above your declared level — want to switch?").
+Teacher/parent trust. If they don't believe the analysis, the product dies. Mitigation: every error shows evidence; analyses are inspectable; sample-based teacher review; gradually introduce a teacher dashboard that lets them verify or override.

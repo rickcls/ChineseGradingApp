@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body { background: #fafaf7; color: #1a1a1a; }
+body { font-family: ui-sans-serif, system-ui, -apple-system, "PingFang HK", "PingFang SC", "Noto Sans SC", sans-serif; }
+
+.prose-zh { line-height: 1.9; font-size: 1.05rem; }
+.prose-zh p { margin-bottom: 1em; }
+
+mark.err-1 { background: #fff3cd; color: inherit; border-bottom: 2px solid #ffd666; padding: 0 2px; border-radius: 2px; }
+mark.err-2 { background: #ffe0b2; color: inherit; border-bottom: 2px solid #ff9800; padding: 0 2px; border-radius: 2px; }
+mark.err-3 { background: #ffcdd2; color: inherit; border-bottom: 2px solid #e57373; padding: 0 2px; border-radius: 2px; }
+mark.ocr-suspect { background: repeating-linear-gradient(45deg,#eef,#eef 4px,#dde 4px,#dde 8px); }

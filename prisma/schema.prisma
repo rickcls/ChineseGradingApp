@@ -1,0 +1,181 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String?  @unique
+  displayName  String
+  gradeLevel   String   // e.g. "P6", "S1"..."S6"
+  locale       String   @default("zh-HK")
+  createdAt    DateTime @default(now())
+
+  submissions       Submission[]
+  weaknessProfiles  WeaknessProfile[]
+  revisionSessions  RevisionSession[]
+  feedbackEvents    FeedbackEvent[]
+}
+
+enum SubmissionType {
+  writing
+  reading
+  revision
+}
+
+enum SubmissionSource {
+  typed
+  photo
+  scan
+}
+
+enum SubmissionStatus {
+  uploaded
+  verified
+  analyzed
+  failed
+}
+
+model Submission {
+  id                    String             @id @default(cuid())
+  userId                String
+  type                  SubmissionType     @default(writing)
+  source                SubmissionSource   @default(typed)
+  rawText               String             @db.Text
+  verifiedText          String             @db.Text
+  imageUrl              String?
+  ocrConfidenceOverall  Float?
+  ocrCharConfidences    Json?
+  status                SubmissionStatus   @default(uploaded)
+  taskId                String?
+  createdAt             DateTime           @default(now())
+
+  user             User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task             WritingTask?         @relation(fields: [taskId], references: [id])
+  analyses         Analysis[]
+  errors           ErrorRecord[]
+  revisionOrigin   RevisionSession[]    @relation("OriginalSubmission")
+
+  @@index([userId, createdAt])
+}
+
+model Analysis {
+  id                 String    @id @default(cuid())
+  submissionId       String
+  rubricId           String?
+  scores             Json      // { content: number, structure: number, ... }
+  overallScore       Float
+  modelName          String
+  modelVersion       String?
+  promptVersion      String
+  coachFeedbackText  String    @db.Text
+  revisionPriorities Json      // string[]
+  strengths          Json      // string[]
+  createdAt          DateTime  @default(now())
+
+  submission  Submission  @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  rubric      Rubric?     @relation(fields: [rubricId], references: [id])
+  errors      ErrorRecord[]
+}
+
+model ErrorRecord {
+  id               String   @id @default(cuid())
+  submissionId     String
+  analysisId       String
+  category         String   // 字詞 / 語法 / 標點 / 結構 / 內容 / 表達
+  subcategory      String
+  evidenceSpan     String   @db.Text
+  charOffsetStart  Int
+  charOffsetEnd    Int
+  suggestion       String   @db.Text
+  severity         Int      // 1..3
+  ocrSuspect       Boolean  @default(false)
+  confidence       Float    @default(0.8)
+  createdAt        DateTime @default(now())
+
+  submission  Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  analysis    Analysis   @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId])
+  @@index([category, subcategory])
+}
+
+enum WeaknessStatus {
+  watching
+  confirmed
+  improving
+  resolved
+}
+
+model WeaknessProfile {
+  id                    String          @id @default(cuid())
+  userId                String
+  category              String
+  subcategory           String
+  evidenceCount         Int             @default(0)
+  evidenceSubmissionIds String[]
+  severityEwma          Float           @default(0)
+  firstSeenAt           DateTime        @default(now())
+  lastSeenAt            DateTime        @default(now())
+  status                WeaknessStatus  @default(watching)
+  recentCounts          Json            // rolling window: [{submissionId, count, date}]
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, category, subcategory])
+  @@index([userId, status])
+}
+
+model RevisionSession {
+  id                     String   @id @default(cuid())
+  userId                 String
+  originalSubmissionId   String
+  revisedText            String   @db.Text
+  targetedErrorIds       String[]
+  improvementDelta       Json?
+  createdAt              DateTime @default(now())
+
+  user                User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  originalSubmission  Submission  @relation("OriginalSubmission", fields: [originalSubmissionId], references: [id], onDelete: Cascade)
+}
+
+model Rubric {
+  id           String   @id @default(cuid())
+  gradeLevel   String
+  type         String   // writing | reading
+  genre        String?
+  rubricJson   Json
+  createdAt    DateTime @default(now())
+
+  analyses  Analysis[]
+
+  @@unique([gradeLevel, type, genre])
+}
+
+model WritingTask {
+  id              String   @id @default(cuid())
+  gradeLevel      String
+  genre           String
+  promptText      String   @db.Text
+  guidance        String?  @db.Text
+  suggestedLength Int?
+  createdAt       DateTime @default(now())
+
+  submissions  Submission[]
+}
+
+model FeedbackEvent {
+  id          String   @id @default(cuid())
+  userId      String
+  targetType  String   // "error" | "suggestion"
+  targetId    String
+  reaction    String   // "helpful" | "wrong" | "confusing"
+  note        String?
+  createdAt   DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
