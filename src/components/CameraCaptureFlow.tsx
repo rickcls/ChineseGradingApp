@@ -195,7 +195,7 @@ export function CameraCaptureFlow({ source, text, onTextChange }: CameraCaptureF
       onTextChange(recognizedText);
       setRecognitionStatus(`辨識完成，共整理 ${pagesRef.current.length} 頁，請核對後再提交。`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "圖片辨識失敗，請稍後再試。");
+      setError(formatNetworkAwareError(err, "圖片辨識失敗，請稍後再試。"));
       setRecognitionStatus(null);
       setTextIsStale(hadRecognizedText);
     } finally {
@@ -495,6 +495,19 @@ function releasePreviewUrl(url: string) {
   if (url.startsWith("blob:")) {
     URL.revokeObjectURL(url);
   }
+}
+
+function formatNetworkAwareError(error: unknown, fallback: string) {
+  if (!(error instanceof Error)) return fallback;
+
+  const message = error.message.trim();
+  if (/failed to fetch/i.test(message)) {
+    return "連線中斷或伺服器回應逾時，請稍後再試。若你正在用部署版，通常代表 OCR 或分析函式超時。";
+  }
+  if (/networkerror|load failed/i.test(message)) {
+    return "目前無法連線到伺服器，請檢查網絡後再試。";
+  }
+  return message || fallback;
 }
 
 async function fileToOptimizedDataUrl(file: File) {

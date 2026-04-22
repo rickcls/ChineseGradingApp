@@ -47,7 +47,7 @@ export function SubmissionForm() {
       const { id } = (await res.json()) as { id: string };
       router.push(`/submissions/${id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "提交失敗");
+      setError(formatNetworkAwareError(err, "提交失敗，請稍後再試。"));
       setSubmitting(false);
     }
   }
@@ -254,4 +254,17 @@ function extractSubmissionErrorFromRaw(raw: string) {
     }
     return "提交失敗";
   }
+}
+
+function formatNetworkAwareError(error: unknown, fallback: string) {
+  if (!(error instanceof Error)) return fallback;
+
+  const message = error.message.trim();
+  if (/failed to fetch/i.test(message)) {
+    return "連線中斷或伺服器回應逾時，請稍後再試。若你正在用 Vercel 部署版，這通常代表後端函式超時。";
+  }
+  if (/networkerror|load failed/i.test(message)) {
+    return "目前無法連線到伺服器，請檢查網絡後再試。";
+  }
+  return message || fallback;
 }
