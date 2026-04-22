@@ -7,6 +7,7 @@ import { updateWeaknessProfiles } from "@/lib/weakness";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 const Body = z.object({
   text: z.string().min(20, "文章太短，請至少寫 20 字").max(8000),

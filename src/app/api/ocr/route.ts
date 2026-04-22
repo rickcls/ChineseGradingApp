@@ -4,6 +4,7 @@ import { extractTextFromImages } from "@/lib/ocr";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 const Body = z.object({
   images: z.array(z.object({ imageDataUrl: z.string().min(1) })).min(1).max(8),
