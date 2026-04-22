@@ -234,14 +234,34 @@ function buildUserPrompt(input: AnalysisInput): string {
 }
 
 function extractJson(text: string): string {
-  const fenced = text.match(/```json\s*([\s\S]*?)```/i);
-  if (fenced) return fenced[1].trim();
-  const firstBrace = text.indexOf("{");
-  const lastBrace = text.lastIndexOf("}");
-  if (firstBrace !== -1 && lastBrace > firstBrace) {
-    return text.slice(firstBrace, lastBrace + 1);
+  const trimmed = text.trim();
+
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fenced?.[1]) {
+    return extractJson(fenced[1]);
   }
-  return text.trim();
+
+  const unfenced = trimmed
+    .replace(/^```[a-zA-Z0-9_-]*\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  if (unfenced !== trimmed) {
+    return extractJson(unfenced);
+  }
+
+  const firstObjectBrace = trimmed.indexOf("{");
+  const lastObjectBrace = trimmed.lastIndexOf("}");
+  if (firstObjectBrace !== -1 && lastObjectBrace > firstObjectBrace) {
+    return trimmed.slice(firstObjectBrace, lastObjectBrace + 1);
+  }
+
+  const firstArrayBracket = trimmed.indexOf("[");
+  const lastArrayBracket = trimmed.lastIndexOf("]");
+  if (firstArrayBracket !== -1 && lastArrayBracket > firstArrayBracket) {
+    return trimmed.slice(firstArrayBracket, lastArrayBracket + 1);
+  }
+
+  return trimmed;
 }
 
 function parseRevisionPriority(value: unknown): RevisionPriority | null {

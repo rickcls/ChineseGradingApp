@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 type SubmissionSource = "photo" | "scan";
-type PdfJsModule = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
+type PdfJsModule = typeof import("pdfjs-dist");
 type PageItem = {
   id: string;
   fileName: string;
@@ -482,13 +482,13 @@ async function pdfFileToPageItems(file: File, remainingSlots: number) {
 
 async function loadPdfJs() {
   if (!pdfJsPromise) {
-    pdfJsPromise = import("pdfjs-dist/legacy/build/pdf.mjs").then((module) => {
-      module.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
-      return module;
-    });
+    const loadModule = new Function("return import('/pdf.min.mjs');") as () => Promise<PdfJsModule>;
+    pdfJsPromise = loadModule();
   }
 
-  return pdfJsPromise;
+  const module = await pdfJsPromise;
+  module.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+  return module;
 }
 
 function releasePreviewUrl(url: string) {

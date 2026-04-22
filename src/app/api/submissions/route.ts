@@ -17,29 +17,32 @@ const Body = z.object({
 });
 
 export async function POST(req: Request) {
-  const json = await req.json().catch(() => null);
-  const parsed = Body.safeParse(json);
-  if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-  }
-
-  const user = await getOrCreateUser({ gradeLevel: parsed.data.gradeLevel });
-  if (parsed.data.gradeLevel && parsed.data.gradeLevel !== user.gradeLevel) {
-    await prisma.user.update({ where: { id: user.id }, data: { gradeLevel: parsed.data.gradeLevel } });
-  }
-
-  const submission = await prisma.submission.create({
-    data: {
-      userId: user.id,
-      type: "writing",
-      source: parsed.data.source || "typed",
-      rawText: parsed.data.text,
-      verifiedText: parsed.data.text,
-      status: "verified",
-    },
-  });
+  let submissionId: string | null = null;
 
   try {
+    const json = await req.json().catch(() => null);
+    const parsed = Body.safeParse(json);
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    }
+
+    const user = await getOrCreateUser({ gradeLevel: parsed.data.gradeLevel });
+    if (parsed.data.gradeLevel && parsed.data.gradeLevel !== user.gradeLevel) {
+      await prisma.user.update({ where: { id: user.id }, data: { gradeLevel: parsed.data.gradeLevel } });
+    }
+
+    const submission = await prisma.submission.create({
+      data: {
+        userId: user.id,
+        type: "writing",
+        source: parsed.data.source || "typed",
+        rawText: parsed.data.text,
+        verifiedText: parsed.data.text,
+        status: "verified",
+      },
+    });
+    submissionId = submission.id;
+
     const { result, modelName, promptVersion } = await analyzeSubmission({
       text: parsed.data.text,
       gradeLevel: parsed.data.gradeLevel || user.gradeLevel,
@@ -105,17 +108,19 @@ export async function POST(req: Request) {
     return NextResponse.json({ id: submission.id }, { status: 201 });
   } catch (err) {
     console.error("Submission analysis failed", err);
-    await prisma.submission.update({
-      where: { id: submission.id },
-      data: { status: "failed" },
-    });
+    if (submissionId) {
+      await prisma.submission.update({
+        where: { id: submissionId },
+        data: { status: "failed" },
+      }).catch(() => null);
+    }
     const message =
       err instanceof z.ZodError
         ? "分析結果格式暫時不完整，請稍後再試。"
         : err instanceof Error
           ? err.message
           : "analysis failed";
-    return NextResponse.json({ error: message, submissionId: submission.id }, { status: 500 });
+    return NextResponse.json({ error: message, submissionId: submissionId || undefined }, { status: 500 });
   }
 }
 

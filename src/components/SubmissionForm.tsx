@@ -40,11 +40,11 @@ export function SubmissionForm() {
       });
 
       if (!res.ok) {
-        const body = await res.json().catch(() => ({ error: "提交失敗" }));
-        throw new Error(extractSubmissionError(body));
+        const raw = await res.text().catch(() => "");
+        throw new Error(extractSubmissionErrorFromRaw(raw));
       }
 
-      const { id } = await res.json();
+      const { id } = (await res.json()) as { id: string };
       router.push(`/submissions/${id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "提交失敗");
@@ -235,4 +235,23 @@ function extractSubmissionError(body: unknown) {
   }
 
   return "提交失敗";
+}
+
+function extractSubmissionErrorFromRaw(raw: string) {
+  if (!raw.trim()) return "提交失敗";
+
+  try {
+    return extractSubmissionError(JSON.parse(raw));
+  } catch {
+    const titleMatch = raw.match(/<title>(.*?)<\/title>/i);
+    if (titleMatch?.[1]) {
+      return titleMatch[1].trim();
+    }
+
+    const collapsed = raw.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    if (collapsed) {
+      return collapsed.slice(0, 180);
+    }
+    return "提交失敗";
+  }
 }
