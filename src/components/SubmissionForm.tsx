@@ -41,7 +41,7 @@ export function SubmissionForm() {
 
       if (!res.ok) {
         const body = await res.json().catch(() => ({ error: "提交失敗" }));
-        throw new Error(typeof body?.error === "string" ? body.error : "提交失敗");
+        throw new Error(extractSubmissionError(body));
       }
 
       const { id } = await res.json();
@@ -53,6 +53,7 @@ export function SubmissionForm() {
   }
 
   const charCount = Array.from(text).length;
+  const isTooLong = charCount > 8000;
 
   return (
     <form onSubmit={onSubmit} className="space-y-6">
@@ -181,14 +182,20 @@ export function SubmissionForm() {
         </div>
       ) : null}
 
+      {isTooLong ? (
+        <div className="rounded-[1.2rem] border border-coral/25 bg-coral/10 px-4 py-3 text-sm text-ink/80">
+          目前文字約 {charCount} 字，已超過系統暫時可分析的 8000 字上限，請刪減後再提交。
+        </div>
+      ) : null}
+
       <div className="paper-panel flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
           <p className="text-sm text-ink/80">導師通常需要 20–60 秒閱讀和整理回饋。</p>
-          <p className="text-xs text-muted">如果這篇文章還不完整也沒關係，先交一版，我們再慢慢修。</p>
+          <p className="text-xs text-muted">如果這篇文章還不完整也沒關係，先交一版，我們再慢慢修。當前字數：{charCount}。</p>
         </div>
         <button
           type="submit"
-          disabled={submitting || charCount < 20}
+          disabled={submitting || charCount < 20 || isTooLong}
           className="btn-primary min-w-[11rem]"
         >
           {submitting ? "導師正在閱讀…" : "提交給導師"}
@@ -196,4 +203,34 @@ export function SubmissionForm() {
       </div>
     </form>
   );
+}
+
+function extractSubmissionError(body: unknown) {
+  if (typeof body === "string") return body;
+  if (!body || typeof body !== "object") return "提交失敗";
+
+  const record = body as {
+    error?: unknown;
+  };
+
+  if (typeof record.error === "string") {
+    return record.error;
+  }
+
+  if (record.error && typeof record.error === "object") {
+    const flattened = record.error as {
+      fieldErrors?: Record<string, string[] | undefined>;
+      formErrors?: string[];
+    };
+
+    const formMessage = flattened.formErrors?.find(Boolean);
+    if (formMessage) return formMessage;
+
+    const fieldMessage = Object.values(flattened.fieldErrors || {})
+      .flat()
+      .find(Boolean);
+    if (fieldMessage) return fieldMessage;
+  }
+
+  return "提交失敗";
 }
