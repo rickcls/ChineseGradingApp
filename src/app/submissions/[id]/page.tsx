@@ -175,7 +175,7 @@ export default async function SubmissionDetailPage({ params }: { params: { id: s
 
       <CoachCard
         title="HKDSE 四項評分觀察"
-        eyebrow={`內容 40% · 表達 30% · 結構 20% · 標點字體 10%${
+        eyebrow={`內容 40% · 表達 30% · 結構 20% · 標點 10%${
           wordCountShort ? `｜字數不足 ${RECOMMENDED_WORD_COUNT}：內容與結構已相應下調` : ""
         }`}
         className="p-6"
@@ -270,7 +270,10 @@ export default async function SubmissionDetailPage({ params }: { params: { id: s
       <section className="space-y-4">
         <div>
           <p className="section-kicker">文中批註</p>
-          <h2 className="mt-2 text-2xl">點讀原文，看看導師在意的是哪一句</h2>
+          <h2 className="mt-2 text-2xl">選一句原文，對應建議就會跟著定位</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-7 text-ink/75">
+            先用上方清單跳到需要整理的位置；電腦版會把逐句建議固定在右邊，手機版則固定在畫面下方。
+          </p>
         </div>
         <AnnotatedText
           text={submission.verifiedText}
@@ -278,6 +281,7 @@ export default async function SubmissionDetailPage({ params }: { params: { id: s
             id: error.id,
             category: error.category,
             subcategory: error.subcategory,
+            evidenceSpan: error.evidenceSpan,
             charOffsetStart: error.charOffsetStart,
             charOffsetEnd: error.charOffsetEnd,
             severity: error.severity,

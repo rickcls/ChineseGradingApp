@@ -13,9 +13,10 @@ import {
   RubricDef,
   DseLevel,
 } from "./rubric";
+import { loadRubricGuideMarkdown } from "./rubricGuide";
 import { TAXONOMY, taxonomyAsMarkdown, validCategory } from "./taxonomy";
 
-export const PROMPT_VERSION = "v3-2026-04-dse";
+export const PROMPT_VERSION = "v4-2026-04-md-rubric";
 
 const ErrorItem = z.object({
   category: z.string(),
@@ -73,7 +74,7 @@ export type AnalysisInput = {
   taskPrompt?: string;
 };
 
-function buildSystemPrompt(rubric: RubricDef): string {
+function buildSystemPrompt(rubric: RubricDef, rubricGuideMarkdown: string): string {
   return [
     "你是香港中學文憑試（HKDSE）中國語文科卷二「命題寫作」的資深閱卷員。你同時要像一位溫和、具體、以學生為本的中文寫作導師，用鼓勵的口吻把評分理由與改善建議告訴學生。",
     "【最重要的評分原則：嚴格依照 HKDSE 尺度】",
@@ -86,7 +87,11 @@ function buildSystemPrompt(rubric: RubricDef): string {
     "第 2 步（分項填分）：按第 1 步選定的等級，分別填出四項分數。四項分數必須落在該等級對應的總分區間內（見下表）。",
     "第 3 步（自我檢核）：確認 coach_feedback 中提及的等級、dse_level、以及四項分數之和，三者必須互相吻合。若有不一致，降級而非升級。",
     "",
-    "【評分準則（佔分與考核重點）】",
+    "【現行評分細則全文】",
+    "以下 markdown 文件是目前採用的評分準則；若你原有印象與文件不同，一律以此文件為準：",
+    rubricGuideMarkdown,
+    "",
+    "【結構化評分簡表（便於對應輸出欄位）】",
     rubricAsMarkdown(rubric),
     "",
     "【整體等級 ↔ 總分對照表（基本分，未含錯別字獎勵）】",
@@ -103,7 +108,7 @@ function buildSystemPrompt(rubric: RubricDef): string {
     "",
     "【錯別字與字數】",
     `- 建議篇幅 ${RECOMMENDED_WORD_COUNT} 字或以上。字數明顯不足（例如少於 ${RECOMMENDED_WORD_COUNT - 150} 字）會令「內容」難以充實、「結構」難以完整，必須相應扣分。`,
-    "- 錯別字會直接影響「標點字體」一項；另設全卷錯別字獎勵：0–1 個 +3 分、2–4 個 +2 分、5–7 個 +1 分、8 個或以上不加分。",
+    "- 錯別字獎勵獨立計算，不可把它混入四項基本分之中；全卷錯別字獎勵為：0–1 個 +3 分、2–4 個 +2 分、5–7 個 +1 分、8 個或以上不加分。",
     "- 注意：錯別字獎勵只是卷面加成，系統不會讓它推動等級邊界（即 Level 4 + 錯別字獎勵不會變成 Level 5）。等級由基本分決定。",
     "- 請在輸出中誠實申報 typo_count（全文錯別字數）與 word_count（中文字符數，不含標點與空白）。",
     "",
@@ -119,9 +124,9 @@ function buildSystemPrompt(rubric: RubricDef): string {
     "",
     "【改進建議 revision_priorities 的詳細規格——最重要】",
     "- 要詳盡：把文章中所有明顯可改進之處都列出來（至少 3 項，最多 8 項），按對升級影響力排序，最關鍵的在最前。不要只列 1–2 項。",
-    "- 範圍不應只集中在「內容」——要覆蓋內容／表達／結構／標點字體四個面向中凡有實際改進空間的部分。",
+    "- 範圍不應只集中在「內容」——要覆蓋內容／表達／結構／標點四個面向中凡有實際改進空間的部分。",
     "- 每一項必須包含以下完整結構：",
-    "    · focus：建議屬於哪一項評分面向（內容 / 表達 / 結構 / 標點字體）",
+    "    · focus：建議屬於哪一項評分面向（內容 / 表達 / 結構 / 標點）",
     "    · issue：一句話指出問題所在",
     "    · why：1–2 句說明為何此問題令作品停留在目前 DSE 等級；改善後能帶來甚麼升級效果",
     "    · how：3–5 個可直接執行的步驟（不是空泛口號；每步要讓學生讀完就知道下一步動作是甚麼）",
@@ -193,7 +198,7 @@ function buildUserPrompt(input: AnalysisInput): string {
     '  "strengths": ["3–5 項具體亮點，每項一句"],',
     '  "revision_priorities": [',
     '    {',
-    '      "focus": "內容 | 表達 | 結構 | 標點字體",',
+    '      "focus": "內容 | 表達 | 結構 | 標點",',
     '      "issue": "一句話點出問題",',
     '      "why": "1–2 句說明為何此問題令作品停在目前等級，以及改善後能帶來甚麼升級效果",',
     '      "how": ["可執行步驟 1", "步驟 2", "步驟 3"],',
@@ -223,6 +228,7 @@ function buildUserPrompt(input: AnalysisInput): string {
     "3. 把這篇文章和「典型 Level 3 作文」（內容完整但平淡、表達通順但單一）比較一次——我給的是否合理？",
     "4. 如果我打算給 Level 5 或以上，立意是否真的深刻？表達是否真的精煉？有遲疑就降級。",
     "5. 如果字數明顯不足 600，內容與結構分是否已相應下調？",
+    "6. 結構的 10 分制等效分數是否高於內容？若高於，請先下調結構分。",
   );
   return parts.join("\n");
 }
@@ -264,7 +270,7 @@ function parseRevisionPriority(value: unknown): RevisionPriority | null {
   }
 
   return {
-    focus: normalizeOptionalString(value.focus),
+    focus: normalizeCriterionFocus(value.focus),
     issue,
     why: normalizeString(value.why),
     how,
@@ -306,11 +312,12 @@ export async function analyzeSubmission(input: AnalysisInput): Promise<{
   rubric: RubricDef;
 }> {
   const rubric = DEFAULT_WRITING_RUBRIC;
+  const rubricGuideMarkdown = loadRubricGuideMarkdown();
   const rawText = await generateModelText({
     model: ANALYSIS_MODEL,
     maxTokens: 4096,
     temperature: 0.2,
-    system: buildSystemPrompt(rubric),
+    system: buildSystemPrompt(rubric, rubricGuideMarkdown),
     user: buildUserPrompt(input),
   });
   const raw = extractJson(rawText);
@@ -329,6 +336,7 @@ export async function analyzeSubmission(input: AnalysisInput): Promise<{
     const safe = Number.isFinite(raw) ? raw : 0;
     clampedScores[criterion.key] = Math.max(0, Math.min(criterion.maxScore, Math.round(safe)));
   }
+  enforceStructureNotAboveContent(clampedScores, rubric);
 
   const baseScore = Object.values(clampedScores).reduce((a, b) => a + b, 0);
   const modelTypoCount = Number.isFinite(parsedOutput.typo_count as number)
@@ -470,6 +478,18 @@ function normalizeOptionalString(value: unknown): string | undefined {
   return trimmed.length === 0 ? undefined : trimmed;
 }
 
+function normalizeCriterionFocus(value: unknown): string | undefined {
+  const text = normalizeOptionalString(value);
+  if (!text) return undefined;
+
+  const normalized = text.replace(/\s+/g, "");
+  if (["內容", "content"].includes(normalized)) return "內容";
+  if (["表達", "expression"].includes(normalized)) return "表達";
+  if (["結構", "structure"].includes(normalized)) return "結構";
+  if (["標點", "標點字體", "punctuation"].includes(normalized)) return "標點";
+  return text;
+}
+
 // Keep example_fix phrase-level: cap length relative to the evidence span so the
 // model can't smuggle in a whole-paragraph rewrite.
 function sanitizeExampleFix(example: string | undefined, evidenceSpan: string): string | undefined {
@@ -487,6 +507,21 @@ function sanitizeExampleFix(example: string | undefined, evidenceSpan: string): 
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function enforceStructureNotAboveContent(scores: Record<string, number>, rubric: RubricDef) {
+  const content = rubric.criteria.find((criterion) => criterion.key === "content");
+  const structure = rubric.criteria.find((criterion) => criterion.key === "structure");
+  if (!content || !structure) return;
+
+  const contentScore = scores[content.key];
+  const structureScore = scores[structure.key];
+  if (!Number.isFinite(contentScore) || !Number.isFinite(structureScore)) return;
+
+  const maxStructureFromContent = Math.floor((contentScore / content.maxScore) * structure.maxScore);
+  if (structureScore > maxStructureFromContent) {
+    scores[structure.key] = Math.max(0, Math.min(structure.maxScore, maxStructureFromContent));
+  }
 }
 
 // LLMs cannot reliably count UTF-16 offsets in long Chinese text, so trust the
@@ -539,4 +574,3 @@ function findClosestOccurrence(haystack: string, needle: string, hint: number): 
   }
   return best;
 }
-
