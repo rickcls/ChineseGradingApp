@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 type SubmissionSource = "photo" | "scan";
+type PdfJsModule = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
 type PageItem = {
   id: string;
   fileName: string;
@@ -10,6 +11,12 @@ type PageItem = {
   imageDataUrl: string;
   recognizedText: string;
 };
+
+const MAX_PAGES = 8;
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_PDF_BYTES = 20 * 1024 * 1024;
+
+let pdfJsPromise: Promise<PdfJsModule> | null = null;
 
 type CameraCaptureFlowProps = {
   source: SubmissionSource;
@@ -33,7 +40,7 @@ export function CameraCaptureFlow({ source, text, onTextChange }: CameraCaptureF
   useEffect(() => {
     return () => {
       for (const page of pagesRef.current) {
-        URL.revokeObjectURL(page.previewUrl);
+        releasePreviewUrl(page.previewUrl);
       }
     };
   }, []);
@@ -42,28 +49,16 @@ export function CameraCaptureFlow({ source, text, onTextChange }: CameraCaptureF
     const files = Array.from(event.target.files || []);
     if (files.length === 0) return;
 
-    const maxPages = 8;
     const existingPages = pagesRef.current;
-    if (existingPages.length + files.length > maxPages) {
-      setError(`一次最多整理 ${maxPages} 頁，請分批上傳。`);
-      event.target.value = "";
-      return;
-    }
-
     const validFiles: File[] = [];
     const issues: string[] = [];
 
     for (const file of files) {
-      if (!file.type.startsWith("image/")) {
-        issues.push(`${file.name} 不是圖片檔。`);
+      const validationMessage = validateUploadFile(file, source);
+      if (validationMessage) {
+        issues.push(validationMessage);
         continue;
       }
-
-      if (file.size > 8 * 1024 * 1024) {
-        issues.push(`${file.name} 超過 8MB，請換一張較小的圖片。`);
-        continue;
-      }
-
       validFiles.push(file);
     }
 
@@ -77,27 +72,18 @@ export function CameraCaptureFlow({ source, text, onTextChange }: CameraCaptureF
 
     setError(issues.length > 0 ? issues.join(" ") : null);
     setIsPreparing(true);
-    setRecognitionStatus(`正在準備 ${validFiles.length} 張圖片…`);
+    setRecognitionStatus(`正在準備 ${validFiles.length} 個檔案…`);
 
     try {
       const preparedPages: PageItem[] = [];
 
       for (const file of validFiles) {
-        const previewUrl = URL.createObjectURL(file);
-
-        try {
-          const imageDataUrl = await fileToOptimizedDataUrl(file);
-          preparedPages.push({
-            id: crypto.randomUUID(),
-            fileName: file.name,
-            previewUrl,
-            imageDataUrl,
-            recognizedText: "",
-          });
-        } catch (err) {
-          URL.revokeObjectURL(previewUrl);
-          throw err;
+        const remainingSlots = MAX_PAGES - existingPages.length - preparedPages.length;
+        if (remainingSlots <= 0) {
+          throw new Error(`一次最多整理 ${MAX_PAGES} 頁，請分批上傳。`);
         }
+        const nextPages = await fileToPageItems(file, remainingSlots);
+        preparedPages.push(...nextPages);
       }
 
       setPages((current) => [...current, ...preparedPages]);
@@ -137,7 +123,7 @@ export function CameraCaptureFlow({ source, text, onTextChange }: CameraCaptureF
     const pageToRemove = pagesRef.current.find((page) => page.id === id);
     if (!pageToRemove) return;
 
-    URL.revokeObjectURL(pageToRemove.previewUrl);
+    releasePreviewUrl(pageToRemove.previewUrl);
     const nextPages = pagesRef.current.filter((page) => page.id !== id);
     setPages(nextPages);
 
@@ -156,7 +142,7 @@ export function CameraCaptureFlow({ source, text, onTextChange }: CameraCaptureF
 
   function clearPages() {
     for (const page of pagesRef.current) {
-      URL.revokeObjectURL(page.previewUrl);
+      releasePreviewUrl(page.previewUrl);
     }
     setPages([]);
     setTextIsStale(false);
@@ -167,7 +153,7 @@ export function CameraCaptureFlow({ source, text, onTextChange }: CameraCaptureF
 
   async function runRecognition() {
     if (pagesRef.current.length === 0) {
-      setError("請先加入至少一張圖片。");
+      setError(source === "scan" ? "請先加入至少一張掃描圖片或 PDF。" : "請先加入至少一張圖片。");
       return;
     }
 
@@ -218,7 +204,8 @@ export function CameraCaptureFlow({ source, text, onTextChange }: CameraCaptureF
   }
 
   const sourceLabel = source === "photo" ? "拍照交稿" : "掃描稿上傳";
-  const selectLabel = source === "photo" ? "加入相機／相簿圖片" : "加入掃描圖片";
+  const selectLabel = source === "photo" ? "加入相機／相簿圖片" : "加入掃描圖片或 PDF";
+  const acceptValue = source === "photo" ? "image/*" : "image/*,application/pdf";
   const isBusy = isPreparing || isRecognizing;
 
   return (
@@ -233,7 +220,7 @@ export function CameraCaptureFlow({ source, text, onTextChange }: CameraCaptureF
             {selectLabel}
             <input
               type="file"
-              accept="image/*"
+              accept={acceptValue}
               capture={source === "photo" ? "environment" : undefined}
               multiple
               className="hidden"
@@ -336,9 +323,11 @@ export function CameraCaptureFlow({ source, text, onTextChange }: CameraCaptureF
                   />
                 </svg>
               </div>
-              <h4 className="mt-4 text-lg">一次加入一頁或多頁清楚的稿件圖片</h4>
+              <h4 className="mt-4 text-lg">{source === "scan" ? "一次加入掃描圖片或 PDF" : "一次加入一頁或多頁清楚的稿件圖片"}</h4>
               <p className="mt-2 max-w-sm text-sm leading-7 text-muted">
-                你可以先把每一頁排好順序，再開始辨識。這樣系統較容易整理成連貫的文章版本。
+                {source === "scan"
+                  ? "系統會先把 PDF 拆成頁面，之後你仍可調整頁序，再開始辨識。"
+                  : "你可以先把每一頁排好順序，再開始辨識。這樣系統較容易整理成連貫的文章版本。"}
               </p>
             </div>
           )}
@@ -348,7 +337,7 @@ export function CameraCaptureFlow({ source, text, onTextChange }: CameraCaptureF
           <div className="rounded-[1.15rem] border border-border/70 bg-mist/70 p-4 text-sm leading-7 text-ink/80">
             <p className="font-medium text-ink">核對步驟</p>
             <ol className="mt-2 space-y-2 text-sm text-ink/75">
-              <li>1. 一次加入一張或多張照片／掃描稿。</li>
+              <li>1. 一次加入一張或多張照片、掃描圖片，掃描模式也支援 PDF。</li>
               <li>2. 先用上移、下移調整頁序，再按「開始辨識」。</li>
               <li>3. 系統會按頁辨識，再整理成下方核對欄的文字版本。</li>
               <li>4. 確認無誤後提交，導師會以這份文字版作分析。</li>
@@ -385,6 +374,127 @@ export function CameraCaptureFlow({ source, text, onTextChange }: CameraCaptureF
       </div>
     </section>
   );
+}
+
+function validateUploadFile(file: File, source: SubmissionSource) {
+  if (file.type === "application/pdf") {
+    if (source !== "scan") {
+      return `${file.name} 是 PDF，請切換到「掃描稿」模式再上傳。`;
+    }
+    if (file.size > MAX_PDF_BYTES) {
+      return `${file.name} 超過 20MB，請換一份較小的 PDF。`;
+    }
+    return null;
+  }
+
+  if (!file.type.startsWith("image/")) {
+    return `${file.name} 不是圖片或 PDF 檔。`;
+  }
+
+  if (file.size > MAX_IMAGE_BYTES) {
+    return `${file.name} 超過 8MB，請換一張較小的圖片。`;
+  }
+
+  return null;
+}
+
+async function fileToPageItems(file: File, remainingSlots: number) {
+  if (file.type === "application/pdf") {
+    return pdfFileToPageItems(file, remainingSlots);
+  }
+
+  if (remainingSlots < 1) {
+    throw new Error(`一次最多整理 ${MAX_PAGES} 頁，請分批上傳。`);
+  }
+
+  const previewUrl = URL.createObjectURL(file);
+
+  try {
+    const imageDataUrl = await fileToOptimizedDataUrl(file);
+    return [
+      {
+        id: crypto.randomUUID(),
+        fileName: file.name,
+        previewUrl,
+        imageDataUrl,
+        recognizedText: "",
+      },
+    ];
+  } catch (error) {
+    releasePreviewUrl(previewUrl);
+    throw error;
+  }
+}
+
+async function pdfFileToPageItems(file: File, remainingSlots: number) {
+  const pdfjs = await loadPdfJs();
+  const data = new Uint8Array(await file.arrayBuffer());
+  const loadingTask = pdfjs.getDocument({
+    data,
+    useWorkerFetch: false,
+    isEvalSupported: false,
+  });
+
+  try {
+    const pdf = await loadingTask.promise;
+    if (pdf.numPages > remainingSlots) {
+      throw new Error(`${file.name} 共 ${pdf.numPages} 頁，已超過本次剩餘可加入的 ${remainingSlots} 頁。`);
+    }
+
+    const pages: PageItem[] = [];
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+      const page = await pdf.getPage(pageNumber);
+      const baseViewport = page.getViewport({ scale: 1 });
+      const scale = Math.max(1, Math.min(2, 1800 / Math.max(baseViewport.width, baseViewport.height)));
+      const viewport = page.getViewport({ scale });
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
+
+      const context = canvas.getContext("2d", { alpha: false });
+      if (!context) {
+        throw new Error(`無法讀取 ${file.name} 的第 ${pageNumber} 頁。`);
+      }
+
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvasContext: context, viewport, canvas }).promise;
+      const imageDataUrl = canvas.toDataURL("image/jpeg", 0.9);
+      pages.push({
+        id: crypto.randomUUID(),
+        fileName: `${file.name} · 第 ${pageNumber} 頁`,
+        previewUrl: imageDataUrl,
+        imageDataUrl,
+        recognizedText: "",
+      });
+      page.cleanup();
+    }
+
+    pdf.cleanup();
+    await loadingTask.destroy();
+    return pages;
+  } catch (error) {
+    await loadingTask.destroy().catch(() => null);
+    const message = error instanceof Error ? error.message : "PDF 處理失敗";
+    throw new Error(`PDF 處理失敗：${message}`);
+  }
+}
+
+async function loadPdfJs() {
+  if (!pdfJsPromise) {
+    pdfJsPromise = import("pdfjs-dist/legacy/build/pdf.mjs").then((module) => {
+      module.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+      return module;
+    });
+  }
+
+  return pdfJsPromise;
+}
+
+function releasePreviewUrl(url: string) {
+  if (url.startsWith("blob:")) {
+    URL.revokeObjectURL(url);
+  }
 }
 
 async function fileToOptimizedDataUrl(file: File) {

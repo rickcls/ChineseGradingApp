@@ -10,6 +10,7 @@ type ErrorLike = {
   charOffsetEnd: number;
   severity: number;
   suggestion: string;
+  exampleFix?: string | null;
   ocrSuspect: boolean;
 };
 
@@ -67,6 +68,12 @@ export function AnnotatedText({ text, errors }: { text: string; errors: ErrorLik
             </span>
           </div>
           <div className="leading-7 text-ink">{active.suggestion}</div>
+          {active.exampleFix ? (
+            <div className="mt-3 rounded-[0.9rem] border border-good/30 bg-good/10 px-3 py-2 text-sm leading-7 text-ink">
+              <span className="mr-2 text-xs font-medium uppercase tracking-[0.18em] text-good">試試</span>
+              <span className="font-serif">{active.exampleFix}</span>
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className="rounded-[1.1rem] border border-border/70 bg-white/60 px-4 py-3 text-xs text-muted">

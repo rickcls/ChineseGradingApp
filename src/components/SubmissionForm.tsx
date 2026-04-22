@@ -156,7 +156,9 @@ export function SubmissionForm() {
             <div className="paper-panel-muted px-4 py-4">
               <p className="section-kicker">字數</p>
               <div className="mt-2 text-2xl text-ink">{charCount}</div>
-              <p className="mt-1 text-xs text-muted">至少 20 字就可以開始分析</p>
+              <p className="mt-1 text-xs text-muted">
+                HKDSE 命題寫作建議 600 字以上；字數不足會直接影響「內容」與「結構」得分。
+              </p>
             </div>
             <div className="paper-panel-muted px-4 py-4">
               <p className="section-kicker">建議做法</p>

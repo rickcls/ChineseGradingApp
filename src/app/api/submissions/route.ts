@@ -50,7 +50,14 @@ export async function POST(req: Request) {
     const analysis = await prisma.analysis.create({
       data: {
         submissionId: submission.id,
-        scores: result.scores,
+        scores: {
+          ...result.scores,
+          word_count: result.word_count,
+          typo_count: result.typo_count,
+          typo_bonus: result.typo_bonus,
+          base_score: result.base_score,
+          dse_level: result.dse_level,
+        },
         overallScore: result.overall_score,
         modelName,
         promptVersion,
@@ -71,6 +78,7 @@ export async function POST(req: Request) {
           charOffsetStart: e.char_offset_start,
           charOffsetEnd: e.char_offset_end,
           suggestion: e.suggestion,
+          exampleFix: e.example_fix ?? null,
           severity: e.severity,
           ocrSuspect: false,
           confidence: e.confidence ?? 0.8,

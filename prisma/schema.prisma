@@ -92,6 +92,7 @@ model ErrorRecord {
   charOffsetStart  Int
   charOffsetEnd    Int
   suggestion       String   @db.Text
+  exampleFix       String?  @db.Text
   severity         Int      // 1..3
   ocrSuspect       Boolean  @default(false)
   confidence       Float    @default(0.8)

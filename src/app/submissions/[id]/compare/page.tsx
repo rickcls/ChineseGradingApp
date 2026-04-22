@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { RevisionComparison } from "@/components/RevisionComparison";
 import { StatePanel } from "@/components/StatePanel";
+import { normalizeRevisionPriorities } from "@/lib/revisionPriority";
 
 export const dynamic = "force-dynamic";
 
@@ -69,7 +70,9 @@ export default async function SubmissionComparePage({ params }: { params: { id: 
       <RevisionComparison
         beforeText={submission.verifiedText}
         afterText={revision.revisedText}
-        priorities={((analysis?.revisionPriorities as string[] | undefined) || []).slice(0, 3)}
+        priorities={normalizeRevisionPriorities(analysis?.revisionPriorities)
+          .slice(0, 3)
+          .map((p) => p.issue)}
         createdAt={revision.createdAt}
         changedEvidenceCount={numeric(delta.changedEvidenceCount, changedEvidence.length)}
         totalEvidenceCount={numeric(delta.totalEvidenceCount, submission.errors.length)}
