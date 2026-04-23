@@ -1,4 +1,5 @@
 type CoachCardProps = {
+  id?: string;
   children: React.ReactNode;
   title?: string;
   eyebrow?: string;
@@ -15,6 +16,7 @@ const toneClasses: Record<NonNullable<CoachCardProps["tone"]>, string> = {
 };
 
 export function CoachCard({
+  id,
   children,
   title,
   eyebrow,
@@ -22,7 +24,7 @@ export function CoachCard({
   className,
 }: CoachCardProps) {
   return (
-    <div className={["paper-panel p-5", toneClasses[tone], className].filter(Boolean).join(" ")}>
+    <div id={id} className={["paper-panel p-5 scroll-mt-32", toneClasses[tone], className].filter(Boolean).join(" ")}>
       {eyebrow ? <p className="section-kicker mb-2">{eyebrow}</p> : null}
       {title ? <h3 className="mb-3 text-lg">{title}</h3> : null}
       <div className="text-sm leading-7 text-ink/90">{children}</div>

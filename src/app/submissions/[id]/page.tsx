@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { AnnotatedText } from "@/components/AnnotatedText";
 import { CoachCard } from "@/components/CoachCard";
 import { RevisionComposer } from "@/components/RevisionComposer";
+import { SectionPillNav } from "@/components/SectionPillNav";
 import { StatePanel } from "@/components/StatePanel";
 import { StreamingText } from "@/components/StreamingText";
 import {
@@ -151,7 +152,18 @@ export default async function SubmissionDetailPage({ params }: { params: { id: s
         </div>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+      <SectionPillNav
+        items={[
+          { id: "feedback-summary", label: "導師回饋" },
+          { id: "rubric-observations", label: "評分觀察" },
+          { id: "revision-guide", label: "改寫指南" },
+          { id: "annotations", label: "文中批註" },
+          { id: "workbench", label: "訂正工作台" },
+          { id: "error-categories", label: "分類整理" },
+        ]}
+      />
+
+      <section id="feedback-summary" className="grid gap-4 scroll-mt-32 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
         <CoachCard title="導師先跟你說" eyebrow="鼓勵式回饋" tone="primary" className="p-6 sm:p-7">
           <StreamingText text={analysis.coachFeedbackText} />
         </CoachCard>
@@ -197,6 +209,7 @@ export default async function SubmissionDetailPage({ params }: { params: { id: s
       </section>
 
       <CoachCard
+        id="rubric-observations"
         title="HKDSE 四項評分觀察"
         eyebrow={`內容 40% · 表達 30% · 結構 20% · 標點 10%${
           wordCountShort ? `｜字數不足 ${RECOMMENDED_WORD_COUNT}：內容與結構已相應下調` : ""
@@ -226,7 +239,7 @@ export default async function SubmissionDetailPage({ params }: { params: { id: s
       </CoachCard>
 
       {priorities.length > 0 ? (
-        <section className="space-y-4">
+        <section id="revision-guide" className="space-y-4 scroll-mt-32">
           <div>
             <p className="section-kicker">逐項改寫指南</p>
             <h2 className="mt-2 text-2xl">每一條都附「為何要改」與「可模仿的改寫示範」</h2>
@@ -290,7 +303,7 @@ export default async function SubmissionDetailPage({ params }: { params: { id: s
         </section>
       ) : null}
 
-      <section className="space-y-4">
+      <section id="annotations" className="space-y-4 scroll-mt-32">
         <div>
           <p className="section-kicker">文中批註</p>
           <h2 className="mt-2 text-2xl">選一句原文，對應建議就會跟著定位</h2>
@@ -315,17 +328,19 @@ export default async function SubmissionDetailPage({ params }: { params: { id: s
         />
       </section>
 
-      <RevisionComposer
-        submissionId={submission.id}
-        originalText={submission.verifiedText}
-        priorities={priorities.map((p) => p.issue)}
-        hasExistingRevision={Boolean(latestRevision)}
-        aiSuggestions={aiSuggestions}
-        initialModelPassage={submission.aiModelPassage ? serializeModelPassage(submission.aiModelPassage) : null}
-        recentNotebookEntries={recentNotebookEntries.map(serializeNotebookEntry)}
-      />
+      <div id="workbench" className="scroll-mt-32">
+        <RevisionComposer
+          submissionId={submission.id}
+          originalText={submission.verifiedText}
+          priorities={priorities.map((p) => p.issue)}
+          hasExistingRevision={Boolean(latestRevision)}
+          aiSuggestions={aiSuggestions}
+          initialModelPassage={submission.aiModelPassage ? serializeModelPassage(submission.aiModelPassage) : null}
+          recentNotebookEntries={recentNotebookEntries.map(serializeNotebookEntry)}
+        />
+      </div>
 
-      <section className="space-y-4">
+      <section id="error-categories" className="space-y-4 scroll-mt-32">
         <div>
           <p className="section-kicker">分類整理</p>
           <h2 className="mt-2 text-2xl">把提醒分門別類，更容易決定先改哪裡</h2>

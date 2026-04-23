@@ -482,7 +482,7 @@ function toUserFacingPanelError(message: string) {
     return "連線在生成途中中斷了，通常是本機開發伺服器重新整理或暫時不穩。請再按一次，我會重新發出請求。";
   }
   if (/JSON|Expected .* after|Unexpected token|MODEL_PASSAGE_PARSE_FAILED/i.test(message)) {
-    return "AI 這次已經整理出內容方向，但回傳格式不完整，所以暫時未能顯示。請再按一次重新整理。";
+    return "AI 這次的內容已大致整理好，但格式仍不夠完整；系統已自動補救一次，暫時仍未能顯示。";
   }
   return message;
 }

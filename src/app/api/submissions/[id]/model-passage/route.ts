@@ -68,7 +68,7 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
 
 function toUserFacingError(message: string) {
   if (message.startsWith("MODEL_PASSAGE_PARSE_FAILED:")) {
-    return "AI 這次已經整理出內容方向，但回傳格式不完整，所以暫時未能顯示。請再按一次，我會重新整理。";
+    return "AI 這次的內容已大致整理好，但格式仍不夠完整；系統已自動補救一次，暫時仍未能顯示。請稍後再試。";
   }
 
   if (/timed out|timeout/i.test(message)) {

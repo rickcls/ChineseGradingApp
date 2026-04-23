@@ -109,9 +109,22 @@ export function parseTagInput(value: string) {
 }
 
 export function normalizeFocusTag(value: string | undefined) {
+  return detectFocusTag(value);
+}
+
+export function detectFocusTag(value: string | undefined) {
   const trimmed = value?.trim();
   if (!trimmed) return undefined;
-  return NOTEBOOK_FOCUS_TAGS.includes(trimmed as NotebookFocusTag) ? trimmed : undefined;
+  if (NOTEBOOK_FOCUS_TAGS.includes(trimmed as NotebookFocusTag)) {
+    return trimmed as NotebookFocusTag;
+  }
+
+  const ranked = NOTEBOOK_FOCUS_TAGS
+    .map((tag) => ({ tag, index: trimmed.indexOf(tag) }))
+    .filter((item) => item.index !== -1)
+    .sort((a, b) => a.index - b.index);
+
+  return ranked[0]?.tag;
 }
 
 export function previewSubmission(text: string) {

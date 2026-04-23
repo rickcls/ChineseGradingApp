@@ -85,7 +85,7 @@ export async function generateModelPassage(input: GenerateModelPassageInput) {
     taskName: "model-passage",
   });
 
-  const parsed = parseModelPassagePayload(rawText);
+  const parsed = await parseModelPassagePayload(rawText);
   const highlights = parsed.highlights.map((item, index) => ({
     id: `highlight-${index + 1}`,
     focus: item.focus.trim(),
@@ -238,20 +238,20 @@ function extractJson(text: string): string {
   return trimmed;
 }
 
-function parseModelPassagePayload(rawText: string) {
+async function parseModelPassagePayload(rawText: string) {
   const extracted = extractJson(rawText);
-  const candidates = buildJsonRepairCandidates(extracted);
-  let lastError: unknown = null;
-
-  for (const candidate of candidates) {
-    try {
-      return RawModelPassageSchema.parse(JSON.parse(candidate));
-    } catch (error) {
-      lastError = error;
-    }
+  const initialParse = tryParseModelPassagePayload(extracted);
+  if (initialParse.success) {
+    return initialParse.data;
   }
 
-  const message = lastError instanceof Error ? lastError.message : "unknown parse error";
+  const repairedText = await repairModelPassagePayload(extracted);
+  const repairedParse = tryParseModelPassagePayload(repairedText);
+  if (repairedParse.success) {
+    return repairedParse.data;
+  }
+
+  const message = repairedParse.errorMessage || initialParse.errorMessage || "unknown parse error";
   throw new Error(`MODEL_PASSAGE_PARSE_FAILED: ${message}`);
 }
 
@@ -278,6 +278,47 @@ function buildJsonRepairCandidates(text: string) {
   candidates.add(withInsertedArrayCommas);
 
   return Array.from(candidates).filter(Boolean);
+}
+
+function tryParseModelPassagePayload(text: string) {
+  const candidates = buildJsonRepairCandidates(text);
+  let lastError: unknown = null;
+
+  for (const candidate of candidates) {
+    try {
+      return {
+        success: true as const,
+        data: RawModelPassageSchema.parse(JSON.parse(candidate)),
+      };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  return {
+    success: false as const,
+    errorMessage: lastError instanceof Error ? lastError.message : "unknown parse error",
+  };
+}
+
+async function repairModelPassagePayload(rawText: string) {
+  const repaired = await generateModelText({
+    model: MODEL_PASSAGE_MODEL,
+    fallbackModel: MODEL_PASSAGE_FALLBACK_MODEL,
+    system: [
+      "你是一個 JSON 修復器。",
+      "你的工作不是重寫內容，而是把使用者提供的『幾乎正確但格式壞掉的 JSON』修成合法 JSON。",
+      "必須保留原有內容、欄位名稱和語意，只可做最低限度的格式修補，例如補逗號、補引號、刪多餘逗號、修正不完整陣列結構。",
+      "輸出必須只有合法 JSON，不要附加任何說明。",
+      '目標 schema：{"generated_passage":"string","highlights":[{"focus":"string","before_text":"string?","after_text":"string","what_changed":"string","why_it_helps":"string","keep_in_mind":"string","saveable_phrase":"string?"}]}',
+    ].join("\n"),
+    user: ["請把下面這段內容修成合法 JSON，只輸出修好的 JSON：", rawText].join("\n\n"),
+    maxTokens: 3200,
+    temperature: 0,
+    taskName: "model-passage-repair",
+  });
+
+  return extractJson(repaired);
 }
 
 function normalizeComparableText(text: string) {
