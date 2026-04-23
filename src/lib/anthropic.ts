@@ -2,6 +2,10 @@ import Anthropic from "@anthropic-ai/sdk";
 
 let client: Anthropic | null = null;
 
+const FAST_FALLBACK_MODEL = process.env.FAST_FALLBACK_MODEL || "google/gemini-2.5-flash";
+const DEFAULT_ANALYSIS_TIMEOUT_MS = parsePositiveInt(process.env.ANALYSIS_OPENROUTER_TIMEOUT_MS, 90000);
+const DEFAULT_OCR_TIMEOUT_MS = parsePositiveInt(process.env.OCR_OPENROUTER_TIMEOUT_MS, 45000);
+
 function getAnthropic(): Anthropic {
   if (client) return client;
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -12,16 +16,27 @@ function getAnthropic(): Anthropic {
   return client;
 }
 
-export const ANALYSIS_MODEL = process.env.ANALYSIS_MODEL || "google/gemini-2.5-flash";
+function parsePositiveInt(raw: string | undefined, fallback: number) {
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : fallback;
+}
+
+export const ANALYSIS_MODEL = process.env.ANALYSIS_MODEL || FAST_FALLBACK_MODEL;
+export const ANALYSIS_FALLBACK_MODEL = process.env.ANALYSIS_FALLBACK_MODEL || FAST_FALLBACK_MODEL;
 export const COACH_MODEL = process.env.COACH_MODEL || "anthropic/claude-3.5-haiku";
-export const OCR_MODEL = process.env.OCR_MODEL || process.env.ANALYSIS_MODEL || "google/gemini-2.5-flash";
+export const OCR_MODEL = process.env.OCR_MODEL || process.env.ANALYSIS_MODEL || FAST_FALLBACK_MODEL;
+export const OCR_FALLBACK_MODEL =
+  process.env.OCR_FALLBACK_MODEL || process.env.ANALYSIS_FALLBACK_MODEL || FAST_FALLBACK_MODEL;
 
 type GenerateTextInput = {
   system: string;
   user: string;
   model: string;
+  fallbackModel?: string;
   maxTokens?: number;
   temperature?: number;
+  timeoutMs?: number;
+  taskName?: string;
 };
 
 type GenerateVisionTextInput = GenerateTextInput & {
@@ -51,42 +66,134 @@ function contentFromOpenRouter(raw: unknown): string {
   return "";
 }
 
-async function generateWithOpenRouter(input: GenerateTextInput): Promise<string> {
+function isRetryableModelError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /(timed out|request failed \((408|409|425|429|500|502|503|504|524)\)|returned empty content)/i.test(message);
+}
+
+function logModelEvent(taskName: string, model: string, startedAt: number, outcome: "ok" | "retry" | "fail") {
+  const durationMs = Date.now() - startedAt;
+  const prefix = `[model:${taskName}]`;
+  const message = `${prefix} ${model} ${outcome} in ${durationMs}ms`;
+
+  if (outcome === "fail") {
+    console.error(message);
+    return;
+  }
+
+  if (outcome === "retry") {
+    console.warn(message);
+    return;
+  }
+
+  console.info(message);
+}
+
+async function withModelFallback<T>(
+  input: GenerateTextInput,
+  run: (model: string) => Promise<T>,
+): Promise<T> {
+  const primaryModel = input.model;
+  const fallbackModel = input.fallbackModel?.trim();
+
+  const startedAt = Date.now();
+  try {
+    const result = await run(primaryModel);
+    logModelEvent(input.taskName || "text", primaryModel, startedAt, "ok");
+    return result;
+  } catch (primaryError) {
+    logModelEvent(input.taskName || "text", primaryModel, startedAt, fallbackModel ? "retry" : "fail");
+
+    if (!fallbackModel || fallbackModel === primaryModel || !isRetryableModelError(primaryError)) {
+      throw primaryError;
+    }
+
+    const fallbackStartedAt = Date.now();
+    try {
+      const result = await run(fallbackModel);
+      logModelEvent(input.taskName || "text", fallbackModel, fallbackStartedAt, "ok");
+      return result;
+    } catch (fallbackError) {
+      logModelEvent(input.taskName || "text", fallbackModel, fallbackStartedAt, "fail");
+      const primaryMessage = primaryError instanceof Error ? primaryError.message : String(primaryError);
+      const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+      throw new Error(
+        `Primary model "${primaryModel}" failed: ${primaryMessage}. Fallback model "${fallbackModel}" also failed: ${fallbackMessage}`,
+      );
+    }
+  }
+}
+
+async function openRouterFetch(
+  payload: unknown,
+  context: { model: string; timeoutMs: number; taskName: string },
+): Promise<Response> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error("OPENROUTER_API_KEY is not set");
 
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      ...(process.env.OPENROUTER_HTTP_REFERER
-        ? { "HTTP-Referer": process.env.OPENROUTER_HTTP_REFERER }
-        : {}),
-      ...(process.env.OPENROUTER_APP_NAME ? { "X-Title": process.env.OPENROUTER_APP_NAME } : {}),
-    },
-    body: JSON.stringify({
-      model: input.model,
-      temperature: input.temperature ?? 0.2,
-      max_tokens: input.maxTokens ?? 4096,
-      messages: [
-        { role: "system", content: input.system },
-        { role: "user", content: input.user },
-      ],
-    }),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), context.timeoutMs);
 
-  if (!response.ok) {
-    const details = await response.text();
-    throw new Error(`OpenRouter request failed (${response.status}): ${details}`);
+  try {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        ...(process.env.OPENROUTER_HTTP_REFERER
+          ? { "HTTP-Referer": process.env.OPENROUTER_HTTP_REFERER }
+          : {}),
+        ...(process.env.OPENROUTER_APP_NAME ? { "X-Title": process.env.OPENROUTER_APP_NAME } : {}),
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const details = await response.text();
+      throw new Error(`OpenRouter request failed (${response.status}): ${details}`);
+    }
+
+    return response;
+  } catch (error) {
+    if (
+      controller.signal.aborted ||
+      (error instanceof Error && error.name === "AbortError")
+    ) {
+      throw new Error(`OpenRouter ${context.taskName} timed out after ${context.timeoutMs}ms using ${context.model}`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
   }
+}
 
-  const json = (await response.json()) as {
-    choices?: Array<{ message?: { content?: unknown } }>;
-  };
-  const content = contentFromOpenRouter(json.choices?.[0]?.message?.content);
-  if (!content) throw new Error("OpenRouter returned empty content");
-  return content;
+async function generateWithOpenRouter(input: GenerateTextInput): Promise<string> {
+  return withModelFallback(input, async (model) => {
+    const response = await openRouterFetch(
+      {
+        model,
+        temperature: input.temperature ?? 0.2,
+        max_tokens: input.maxTokens ?? 4096,
+        messages: [
+          { role: "system", content: input.system },
+          { role: "user", content: input.user },
+        ],
+      },
+      {
+        model,
+        timeoutMs: input.timeoutMs ?? DEFAULT_ANALYSIS_TIMEOUT_MS,
+        taskName: input.taskName || "text",
+      },
+    );
+
+    const json = (await response.json()) as {
+      choices?: Array<{ message?: { content?: unknown } }>;
+    };
+    const content = contentFromOpenRouter(json.choices?.[0]?.message?.content);
+    if (!content) throw new Error("OpenRouter returned empty content");
+    return content;
+  });
 }
 
 async function generateWithAnthropic(input: GenerateTextInput): Promise<string> {
@@ -132,47 +239,37 @@ function normalizeAnthropicImageType(mediaType: string): "image/jpeg" | "image/p
 }
 
 async function generateVisionWithOpenRouter(input: GenerateVisionTextInput): Promise<string> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) throw new Error("OPENROUTER_API_KEY is not set");
+  return withModelFallback(input, async (model) => {
+    const response = await openRouterFetch(
+      {
+        model,
+        temperature: input.temperature ?? 0.1,
+        max_tokens: input.maxTokens ?? 4096,
+        messages: [
+          { role: "system", content: input.system },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: input.user },
+              { type: "image_url", image_url: { url: input.imageDataUrl } },
+            ],
+          },
+        ],
+      },
+      {
+        model,
+        timeoutMs: input.timeoutMs ?? DEFAULT_OCR_TIMEOUT_MS,
+        taskName: input.taskName || "vision",
+      },
+    );
 
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      ...(process.env.OPENROUTER_HTTP_REFERER
-        ? { "HTTP-Referer": process.env.OPENROUTER_HTTP_REFERER }
-        : {}),
-      ...(process.env.OPENROUTER_APP_NAME ? { "X-Title": process.env.OPENROUTER_APP_NAME } : {}),
-    },
-    body: JSON.stringify({
-      model: input.model,
-      temperature: input.temperature ?? 0.1,
-      max_tokens: input.maxTokens ?? 4096,
-      messages: [
-        { role: "system", content: input.system },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: input.user },
-            { type: "image_url", image_url: { url: input.imageDataUrl } },
-          ],
-        },
-      ],
-    }),
+    const json = (await response.json()) as {
+      choices?: Array<{ message?: { content?: unknown } }>;
+    };
+    const content = contentFromOpenRouter(json.choices?.[0]?.message?.content);
+    if (!content) throw new Error("OpenRouter returned empty content");
+    return content;
   });
-
-  if (!response.ok) {
-    const details = await response.text();
-    throw new Error(`OpenRouter request failed (${response.status}): ${details}`);
-  }
-
-  const json = (await response.json()) as {
-    choices?: Array<{ message?: { content?: unknown } }>;
-  };
-  const content = contentFromOpenRouter(json.choices?.[0]?.message?.content);
-  if (!content) throw new Error("OpenRouter returned empty content");
-  return content;
 }
 
 async function generateVisionWithAnthropic(input: GenerateVisionTextInput): Promise<string> {

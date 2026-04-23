@@ -9,7 +9,7 @@ export default function NewSubmissionPage() {
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] lg:items-center">
           <div>
             <p className="section-kicker">新作提交</p>
-            <h1 className="mt-2 text-3xl sm:text-4xl">让我们一起看看這篇文章想說什麼</h1>
+            <h1 className="mt-2 text-3xl sm:text-4xl">讓我們一起看看這篇文章想說什麼</h1>
             <p className="mt-3 max-w-2xl text-sm leading-7 text-ink/75">
               這裡不是考場，也不是冷冰冰的評分機。你先交出一版，導師會按照你的年級，用溫和而具體的方式告訴你亮點在哪裡、下一步先改什麼。
             </p>

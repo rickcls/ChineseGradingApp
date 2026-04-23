@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { generateModelText, ANALYSIS_MODEL } from "./anthropic";
+import { generateModelText, ANALYSIS_FALLBACK_MODEL, ANALYSIS_MODEL } from "./anthropic";
 import {
   DEFAULT_WRITING_RUBRIC,
   DSE_LEVEL_BANDS,
@@ -335,8 +335,11 @@ export async function analyzeSubmission(input: AnalysisInput): Promise<{
   const rubricGuideMarkdown = loadRubricGuideMarkdown();
   const rawText = await generateModelText({
     model: ANALYSIS_MODEL,
+    fallbackModel: ANALYSIS_FALLBACK_MODEL,
     maxTokens: 4096,
     temperature: 0.2,
+    timeoutMs: 90000,
+    taskName: "analysis",
     system: buildSystemPrompt(rubric, rubricGuideMarkdown),
     user: buildUserPrompt(input),
   });

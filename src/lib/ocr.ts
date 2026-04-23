@@ -1,4 +1,4 @@
-import { generateModelText, generateVisionModelText, OCR_MODEL } from "./anthropic";
+import { generateModelText, generateVisionModelText, OCR_FALLBACK_MODEL, OCR_MODEL } from "./anthropic";
 
 type SubmissionSource = "photo" | "scan";
 
@@ -33,8 +33,11 @@ async function extractTextFromSingleImage(input: ExtractTextFromImageInput) {
 
   const text = await generateVisionModelText({
     model: OCR_MODEL,
-    maxTokens: 4096,
+    fallbackModel: OCR_FALLBACK_MODEL,
+    maxTokens: 3072,
     temperature: 0.1,
+    timeoutMs: 45000,
+    taskName: "ocr-page",
     system: [
       "你是一個專門做中文作文辨識的 OCR 助手。",
       "只輸出辨識後的正文，不要解釋，不要加前言，不要使用 markdown。",
@@ -70,8 +73,11 @@ async function mergePageTexts(pages: OCRPageResult[], source: SubmissionSource) 
   try {
     const merged = await generateModelText({
       model: OCR_MODEL,
-      maxTokens: 8192,
+      fallbackModel: OCR_FALLBACK_MODEL,
+      maxTokens: 4096,
       temperature: 0.1,
+      timeoutMs: 30000,
+      taskName: "ocr-merge",
       system: [
         "你是一個專門整理中文作文 OCR 結果的助手。",
         "任務是把多頁作文的逐頁辨識結果，整理成一份依原順序連貫的正文。",
