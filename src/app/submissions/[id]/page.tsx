@@ -15,7 +15,10 @@ import {
   RECOMMENDED_WORD_COUNT,
   totalMaxScore,
 } from "@/lib/rubric";
+import { serializeModelPassage } from "@/lib/modelPassage";
+import { serializeNotebookEntry } from "@/lib/notebook";
 import { normalizeRevisionPriorities } from "@/lib/revisionPriority";
+import { buildWorkbenchRevisionSuggestions } from "@/lib/revisionSuggestions";
 
 export const dynamic = "force-dynamic";
 
@@ -23,14 +26,30 @@ export default async function SubmissionDetailPage({ params }: { params: { id: s
   const user = await getCurrentUser();
   if (!user) notFound();
 
-  const submission = await prisma.submission.findFirst({
-    where: { id: params.id, userId: user.id },
-    include: {
-      analyses: { orderBy: { createdAt: "desc" }, take: 1 },
-      errors: { orderBy: { charOffsetStart: "asc" } },
-      revisionOrigin: { orderBy: { createdAt: "desc" }, take: 1 },
-    },
-  });
+  const [submission, recentNotebookEntries] = await Promise.all([
+    prisma.submission.findFirst({
+      where: { id: params.id, userId: user.id },
+      include: {
+        analyses: { orderBy: { createdAt: "desc" }, take: 1 },
+        errors: { orderBy: { charOffsetStart: "asc" } },
+        revisionOrigin: { orderBy: { createdAt: "desc" }, take: 1 },
+        aiModelPassage: true,
+      },
+    }),
+    prisma.notebookEntry.findMany({
+      where: { userId: user.id },
+      orderBy: { updatedAt: "desc" },
+      take: 4,
+      include: {
+        submission: {
+          select: {
+            id: true,
+            verifiedText: true,
+          },
+        },
+      },
+    }),
+  ]);
 
   if (!submission) notFound();
 
@@ -60,6 +79,10 @@ export default async function SubmissionDetailPage({ params }: { params: { id: s
   const scores = analysis.scores as Record<string, number | string>;
   const strengths = analysis.strengths as string[];
   const priorities = normalizeRevisionPriorities(analysis.revisionPriorities);
+  const aiSuggestions = buildWorkbenchRevisionSuggestions({
+    priorities,
+    errors: submission.errors,
+  });
   const rubricMax = totalMaxScore(DEFAULT_WRITING_RUBRIC);
   const baseScore = toNumber(scores.base_score, analysis.overallScore);
   const typoBonus = toNumber(scores.typo_bonus, Math.max(0, analysis.overallScore - baseScore));
@@ -297,6 +320,9 @@ export default async function SubmissionDetailPage({ params }: { params: { id: s
         originalText={submission.verifiedText}
         priorities={priorities.map((p) => p.issue)}
         hasExistingRevision={Boolean(latestRevision)}
+        aiSuggestions={aiSuggestions}
+        initialModelPassage={submission.aiModelPassage ? serializeModelPassage(submission.aiModelPassage) : null}
+        recentNotebookEntries={recentNotebookEntries.map(serializeNotebookEntry)}
       />
 
       <section className="space-y-4">

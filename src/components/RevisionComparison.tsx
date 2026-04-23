@@ -1,17 +1,32 @@
+"use client";
+
+import { useState } from "react";
+import { ModelPassagePanel } from "@/components/ModelPassagePanel";
+import { NotebookQuickPanel } from "@/components/NotebookQuickPanel";
+import { RevisionSuggestionList } from "@/components/RevisionSuggestionList";
+import type { StoredModelPassage } from "@/lib/modelPassage";
+import type { NotebookEntrySummary } from "@/lib/notebook";
+import type { RevisionSuggestionCard } from "@/lib/revisionSuggestions";
+
 type RevisionComparisonProps = {
+  submissionId: string;
   beforeText: string;
   afterText: string;
   priorities: string[];
-  createdAt: Date;
+  createdAt: string;
   changedEvidenceCount: number;
   totalEvidenceCount: number;
   beforeChars: number;
   afterChars: number;
   changedEvidence: { id: string; evidenceSpan: string; suggestion: string }[];
   remainingEvidence: { id: string; evidenceSpan: string; suggestion: string }[];
+  remainingAiSuggestions: RevisionSuggestionCard[];
+  initialModelPassage: StoredModelPassage | null;
+  recentNotebookEntries: NotebookEntrySummary[];
 };
 
 export function RevisionComparison({
+  submissionId,
   beforeText,
   afterText,
   priorities,
@@ -22,9 +37,20 @@ export function RevisionComparison({
   afterChars,
   changedEvidence,
   remainingEvidence,
+  remainingAiSuggestions,
+  initialModelPassage,
+  recentNotebookEntries,
 }: RevisionComparisonProps) {
+  const [notebookEntries, setNotebookEntries] = useState(recentNotebookEntries);
   const delta = afterChars - beforeChars;
   const ratioLabel = totalEvidenceCount === 0 ? "已完成一次完整修訂" : `${changedEvidenceCount} / ${totalEvidenceCount} 處原句片段已有改動`;
+
+  function handleNotebookEntryCreated(entry: NotebookEntrySummary) {
+    setNotebookEntries((current) => {
+      const next = [entry, ...current.filter((item) => item.id !== entry.id)];
+      return next.slice(0, 6);
+    });
+  }
 
   return (
     <div className="space-y-6">
@@ -40,7 +66,7 @@ export function RevisionComparison({
             </div>
           </div>
           <div className="flex flex-wrap gap-3 text-sm text-ink/75">
-            <span className="pill">修訂時間 {createdAt.toLocaleDateString("zh-HK")}</span>
+            <span className="pill">修訂時間 {new Date(createdAt).toLocaleDateString("zh-HK")}</span>
             <span className="pill pill-positive">{ratioLabel}</span>
             <span className="pill pill-warm">
               字數 {delta >= 0 ? "+" : ""}
@@ -129,8 +155,34 @@ export function RevisionComparison({
               )}
             </ul>
           </div>
+
+          <div className="paper-panel p-5">
+            <p className="section-kicker">AI 參考改寫</p>
+            <h2 className="mt-2 text-xl">仍可參考的句子示範</h2>
+            <RevisionSuggestionList
+              suggestions={remainingAiSuggestions}
+              advisoryNote="這裡只保留看起來仍和現稿相關的示範，方便你決定下一輪要先修哪一句。"
+              emptyTitle="這一輪可參考的示範已經差不多處理完了。"
+              emptyDescription="你目前的修訂已不再明顯保留那些可對照的原句片段，可以先休息一下，或回到回饋頁挑新的重點再精修。"
+            />
+          </div>
+
+          <NotebookQuickPanel
+            entries={notebookEntries}
+            submissionId={submissionId}
+            onEntryCreated={handleNotebookEntryCreated}
+            intro="把這次對照時發現的句式或提醒先記下來，之後寫下一篇時就更容易用回來。"
+          />
         </div>
       </section>
+
+      <ModelPassagePanel
+        submissionId={submissionId}
+        originalText={beforeText}
+        initialPassage={initialModelPassage}
+        context="compare"
+        onNotebookEntryCreated={handleNotebookEntryCreated}
+      />
     </div>
   );
 }

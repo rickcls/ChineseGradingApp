@@ -19,6 +19,8 @@ model User {
   weaknessProfiles  WeaknessProfile[]
   revisionSessions  RevisionSession[]
   feedbackEvents    FeedbackEvent[]
+  aiModelPassages   AiModelPassage[]
+  notebookEntries   NotebookEntry[]
 }
 
 enum SubmissionType {
@@ -59,6 +61,8 @@ model Submission {
   analyses         Analysis[]
   errors           ErrorRecord[]
   revisionOrigin   RevisionSession[]    @relation("OriginalSubmission")
+  aiModelPassage   AiModelPassage?
+  notebookEntries  NotebookEntry[]
 
   @@index([userId, createdAt])
 }
@@ -142,6 +146,54 @@ model RevisionSession {
 
   user                User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   originalSubmission  Submission  @relation("OriginalSubmission", fields: [originalSubmissionId], references: [id], onDelete: Cascade)
+}
+
+model AiModelPassage {
+  id            String   @id @default(cuid())
+  userId        String
+  submissionId  String   @unique
+  generatedText String   @db.Text
+  highlights    Json
+  modelName     String
+  promptVersion String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  submission      Submission      @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  notebookEntries NotebookEntry[]
+
+  @@index([userId, updatedAt])
+}
+
+enum NotebookEntryType {
+  manual
+  phrase
+  lesson
+}
+
+model NotebookEntry {
+  id               String            @id @default(cuid())
+  userId           String
+  submissionId     String?
+  sourcePassageId  String?
+  entryType        NotebookEntryType
+  title            String?
+  content          String            @db.Text
+  focusTag         String?
+  tags             String[]
+  sourceBeforeText String?           @db.Text
+  sourceAfterText  String?           @db.Text
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  submission    Submission?     @relation(fields: [submissionId], references: [id], onDelete: SetNull)
+  sourcePassage AiModelPassage? @relation(fields: [sourcePassageId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([userId, focusTag])
+  @@index([submissionId])
 }
 
 model Rubric {

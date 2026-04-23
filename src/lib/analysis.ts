@@ -16,7 +16,7 @@ import {
 import { loadRubricGuideMarkdown } from "./rubricGuide";
 import { TAXONOMY, taxonomyAsMarkdown, validCategory } from "./taxonomy";
 
-export const PROMPT_VERSION = "v4-2026-04-md-rubric";
+export const PROMPT_VERSION = "v5-2026-04-enriched-revision-suggestions";
 
 const ErrorItem = z.object({
   category: z.string(),
@@ -125,15 +125,20 @@ function buildSystemPrompt(rubric: RubricDef, rubricGuideMarkdown: string): stri
     "【改進建議 revision_priorities 的詳細規格——最重要】",
     "- 要詳盡：把文章中所有明顯可改進之處都列出來（至少 3 項，最多 8 項），按對升級影響力排序，最關鍵的在最前。不要只列 1–2 項。",
     "- 範圍不應只集中在「內容」——要覆蓋內容／表達／結構／標點四個面向中凡有實際改進空間的部分。",
+    "- 但排序上要優先幫學生『把內容寫得更充實、更有層次』：若本文的主要弱點在內容、結構、情感深度、選材、論述展開，排在前 4 項的建議不可大多只是錯字、字詞或標點。",
+    "- 若內容或結構仍有明顯進步空間，前 4 項至少 2 項必須是內容／結構層次的建議，並示範如何補細節、補感受、補主旨句、補過渡句或補結尾昇華句。",
+    "- revision_priorities 不是錯誤清單的改寫版本；它的任務是提供『更高層次、可直接模仿的升級示範』，尤其幫學生充實內容，而不只是改字眼。",
     "- 每一項必須包含以下完整結構：",
     "    · focus：建議屬於哪一項評分面向（內容 / 表達 / 結構 / 標點）",
     "    · issue：一句話指出問題所在",
     "    · why：1–2 句說明為何此問題令作品停留在目前 DSE 等級；改善後能帶來甚麼升級效果",
     "    · how：3–5 個可直接執行的步驟（不是空泛口號；每步要讓學生讀完就知道下一步動作是甚麼）",
     "    · example_before：（若適用）原文中的短引文，不超過 30 字",
-    "    · example_after：示範改寫一至兩句，不超過 60 字；必須是具體可抄寫／可模仿的文字，不可只是「你可以這樣想」這類提問——學生要能一眼看到「原來寫成這樣就更好」",
+    "    · example_after：示範改寫一至兩句，不超過 90 字；必須是具體可抄寫／可模仿的文字，不可只是「你可以這樣想」這類提問——學生要能一眼看到「原來寫成這樣就更好」",
+    "- 至少 4 項 revision_priorities 要提供 example_after；若作品可改進之處很多，盡量讓前 5 項都有 example_after。",
+    "- content / structure 類的 example_after 要優先示範『增量寫法』：補一個具體細節、補一層心理感受、補一句承上啟下、補一句點題或昇華，而不只是抽換近義詞。",
     "- 絕對禁止在 example_after 中整段重寫，或超過兩句。若問題本質是「整篇立意偏離」，example_after 應示範「開頭主旨句」或「結尾昇華句」的一句改寫，而不是整段重構。",
-    "- 若問題完全沒有具體正確答案（例如「情感深度不足」），仍要在 how 中給出三項具體可執行的練習方法，並在 example_after 寫一句可模仿的示範句。",
+    "- 若問題完全沒有唯一正確答案（例如「情感深度不足」），仍要在 how 中給出三項具體可執行的練習方法，並在 example_after 寫一句至兩句可模仿的示範句，示範怎樣把內容寫得更飽滿。",
     "",
     "【example_fix 使用原則】",
     "- example_fix 是針對該 evidence_span 的短示範修訂，用來讓學生看懂「怎樣改」。",
@@ -203,9 +208,9 @@ function buildUserPrompt(input: AnalysisInput): string {
     '      "why": "1–2 句說明為何此問題令作品停在目前等級，以及改善後能帶來甚麼升級效果",',
     '      "how": ["可執行步驟 1", "步驟 2", "步驟 3"],',
     '      "example_before": "（可選）原文短引文，不超過 30 字",',
-    '      "example_after": "示範改寫一至兩句，不超過 60 字，必須是可直接抄寫／模仿的具體文字"',
+    '      "example_after": "示範改寫一至兩句，不超過 90 字，必須是可直接抄寫／模仿的具體文字，優先示範如何補細節、補感受、補過渡或補點題句"',
     "    }",
-    "    ... 至少 3 項、最多 8 項，按升級影響力排序",
+    "    ... 至少 3 項、最多 8 項，按升級影響力排序；若內容或結構有明顯弱點，前 4 項至少 2 項必須是內容／結構層次建議",
     "  ],",
     '  "errors": [',
     '    {',
@@ -294,8 +299,8 @@ function parseRevisionPriority(value: unknown): RevisionPriority | null {
     issue,
     why: normalizeString(value.why),
     how,
-    example_before: sanitizeExampleLine(value.example_before, 30),
-    example_after: sanitizeExampleLine(value.example_after, 60),
+    example_before: sanitizeExampleLine(value.example_before, 45),
+    example_after: sanitizeExampleLine(value.example_after, 90),
   };
 }
 

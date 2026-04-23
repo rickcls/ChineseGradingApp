@@ -4,7 +4,13 @@ import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { RevisionComparison } from "@/components/RevisionComparison";
 import { StatePanel } from "@/components/StatePanel";
+import { serializeModelPassage } from "@/lib/modelPassage";
+import { serializeNotebookEntry } from "@/lib/notebook";
 import { normalizeRevisionPriorities } from "@/lib/revisionPriority";
+import {
+  buildRemainingRevisionSuggestions,
+  includesNormalized,
+} from "@/lib/revisionSuggestions";
 
 export const dynamic = "force-dynamic";
 
@@ -12,19 +18,36 @@ export default async function SubmissionComparePage({ params }: { params: { id: 
   const user = await getCurrentUser();
   if (!user) notFound();
 
-  const submission = await prisma.submission.findFirst({
-    where: { id: params.id, userId: user.id },
-    include: {
-      analyses: { orderBy: { createdAt: "desc" }, take: 1 },
-      errors: { orderBy: { charOffsetStart: "asc" } },
-      revisionOrigin: { orderBy: { createdAt: "desc" }, take: 1 },
-    },
-  });
+  const [submission, recentNotebookEntries] = await Promise.all([
+    prisma.submission.findFirst({
+      where: { id: params.id, userId: user.id },
+      include: {
+        analyses: { orderBy: { createdAt: "desc" }, take: 1 },
+        errors: { orderBy: { charOffsetStart: "asc" } },
+        revisionOrigin: { orderBy: { createdAt: "desc" }, take: 1 },
+        aiModelPassage: true,
+      },
+    }),
+    prisma.notebookEntry.findMany({
+      where: { userId: user.id },
+      orderBy: { updatedAt: "desc" },
+      take: 4,
+      include: {
+        submission: {
+          select: {
+            id: true,
+            verifiedText: true,
+          },
+        },
+      },
+    }),
+  ]);
 
   if (!submission) notFound();
 
   const revision = submission.revisionOrigin[0];
   const analysis = submission.analyses[0];
+  const priorities = normalizeRevisionPriorities(analysis?.revisionPriorities);
 
   if (!revision) {
     return (
@@ -60,6 +83,11 @@ export default async function SubmissionComparePage({ params }: { params: { id: 
       evidenceSpan: error.evidenceSpan,
       suggestion: error.suggestion,
     }));
+  const remainingAiSuggestions = buildRemainingRevisionSuggestions({
+    priorities,
+    errors: submission.errors,
+    revisedText: revision.revisedText,
+  });
 
   return (
     <div className="space-y-6">
@@ -68,27 +96,23 @@ export default async function SubmissionComparePage({ params }: { params: { id: 
       </Link>
 
       <RevisionComparison
+        submissionId={submission.id}
         beforeText={submission.verifiedText}
         afterText={revision.revisedText}
-        priorities={normalizeRevisionPriorities(analysis?.revisionPriorities)
-          .slice(0, 3)
-          .map((p) => p.issue)}
-        createdAt={revision.createdAt}
+        priorities={priorities.slice(0, 3).map((p) => p.issue)}
+        createdAt={revision.createdAt.toISOString()}
         changedEvidenceCount={numeric(delta.changedEvidenceCount, changedEvidence.length)}
         totalEvidenceCount={numeric(delta.totalEvidenceCount, submission.errors.length)}
         beforeChars={numeric(delta.beforeChars, Array.from(submission.verifiedText).length)}
         afterChars={numeric(delta.afterChars, Array.from(revision.revisedText).length)}
         changedEvidence={changedEvidence}
         remainingEvidence={remainingEvidence}
+        remainingAiSuggestions={remainingAiSuggestions}
+        initialModelPassage={submission.aiModelPassage ? serializeModelPassage(submission.aiModelPassage) : null}
+        recentNotebookEntries={recentNotebookEntries.map(serializeNotebookEntry)}
       />
     </div>
   );
-}
-
-function includesNormalized(haystack: string, needle: string) {
-  const normalizedHaystack = haystack.replace(/\s+/g, "");
-  const normalizedNeedle = needle.replace(/\s+/g, "");
-  return normalizedNeedle ? normalizedHaystack.includes(normalizedNeedle) : false;
 }
 
 function numeric(value: unknown, fallback: number) {
