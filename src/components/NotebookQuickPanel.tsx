@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   NOTEBOOK_FOCUS_TAGS,
   parseTagInput,
@@ -11,7 +10,7 @@ import {
 type NotebookQuickPanelProps = {
   entries: NotebookEntrySummary[];
   submissionId?: string;
-  onEntryCreated: (entry: NotebookEntrySummary) => void;
+  onEntryCreated?: (entry: NotebookEntrySummary) => void;
   title?: string;
   intro?: string;
 };
@@ -23,12 +22,17 @@ export function NotebookQuickPanel({
   title = "學習筆記",
   intro = "把這次學到的句式、提醒或靈感記下來，下次寫作時就不用再從零開始想。",
 }: NotebookQuickPanelProps) {
+  const [localEntries, setLocalEntries] = useState(entries);
   const [draftTitle, setDraftTitle] = useState("");
   const [draftContent, setDraftContent] = useState("");
   const [focusTag, setFocusTag] = useState("");
   const [tagInput, setTagInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLocalEntries(entries);
+  }, [entries]);
 
   async function createManualEntry() {
     if (draftContent.trim().length < 2) {
@@ -58,7 +62,9 @@ export function NotebookQuickPanel({
         throw new Error(typeof body?.error === "string" ? body.error : "暫時未能儲存筆記。");
       }
 
-      onEntryCreated(body.entry as NotebookEntrySummary);
+      const nextEntry = body.entry as NotebookEntrySummary;
+      setLocalEntries((current) => [nextEntry, ...current.filter((item) => item.id !== nextEntry.id)].slice(0, 6));
+      onEntryCreated?.(nextEntry);
       setDraftTitle("");
       setDraftContent("");
       setFocusTag("");
@@ -77,9 +83,9 @@ export function NotebookQuickPanel({
           <p className="section-kicker">{title}</p>
           <h3 className="mt-2 text-xl">把這次學到的東西留下來</h3>
         </div>
-        <Link href="/notebook" className="btn-secondary px-4 py-2 text-xs">
+        <a href="/notebook" className="btn-secondary px-4 py-2 text-xs">
           打開完整筆記本
-        </Link>
+        </a>
       </div>
 
       <p className="mt-2 text-sm leading-7 text-ink/75">{intro}</p>
@@ -157,16 +163,16 @@ export function NotebookQuickPanel({
             <p className="section-kicker">最近筆記</p>
             <h4 className="mt-2 text-lg">把已經學過的東西拿回來用</h4>
           </div>
-          <span className="pill">{entries.length} 則</span>
+          <span className="pill">{localEntries.length} 則</span>
         </div>
 
-        {entries.length === 0 ? (
+        {localEntries.length === 0 ? (
           <div className="mt-4 rounded-2xl border border-border/70 bg-white/75 px-4 py-3 text-sm leading-7 text-muted">
             還沒有筆記也沒關係。看到一句想學的句式、或一條真正有用的提醒時，再收進來就好。
           </div>
         ) : (
           <ul className="mt-4 space-y-3">
-            {entries.map((entry) => (
+            {localEntries.map((entry) => (
               <li key={entry.id} className="rounded-[1rem] border border-border/70 bg-white/80 px-4 py-3">
                 <div className="flex flex-wrap items-center gap-2 text-[0.68rem] tracking-[0.16em] text-muted">
                   <span
