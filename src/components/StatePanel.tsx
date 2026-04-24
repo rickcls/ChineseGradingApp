@@ -1,5 +1,3 @@
-import Link from "next/link";
-
 type StateKind = "loading" | "empty" | "error";
 
 type StatePanelProps = {
@@ -47,9 +45,9 @@ export function StatePanel({
         {action ? (
           <div className="shrink-0">{action}</div>
         ) : actionHref && actionLabel ? (
-          <Link href={actionHref} className="btn-secondary shrink-0">
+          <a href={actionHref} className="btn-secondary shrink-0">
             {actionLabel}
-          </Link>
+          </a>
         ) : null}
       </div>
       {state === "loading" ? (

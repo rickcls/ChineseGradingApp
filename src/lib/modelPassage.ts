@@ -6,6 +6,8 @@ export const MODEL_PASSAGE_PROMPT_VERSION = "v1-2026-04-reference-passage";
 export const MODEL_PASSAGE_MODEL = process.env.MODEL_PASSAGE_MODEL || ANALYSIS_MODEL;
 export const MODEL_PASSAGE_FALLBACK_MODEL =
   process.env.MODEL_PASSAGE_FALLBACK_MODEL || ANALYSIS_FALLBACK_MODEL;
+const MODEL_PASSAGE_TIMEOUT_MS = parsePositiveInt(process.env.MODEL_PASSAGE_TIMEOUT_MS, 120000);
+const MODEL_PASSAGE_REPAIR_TIMEOUT_MS = parsePositiveInt(process.env.MODEL_PASSAGE_REPAIR_TIMEOUT_MS, 30000);
 
 const StoredHighlightSchema = z.object({
   focus: z.string().min(1),
@@ -82,6 +84,7 @@ export async function generateModelPassage(input: GenerateModelPassageInput) {
     user: buildUserPrompt(input),
     maxTokens: 2600,
     temperature: 0.35,
+    timeoutMs: MODEL_PASSAGE_TIMEOUT_MS,
     taskName: "model-passage",
   });
 
@@ -315,6 +318,7 @@ async function repairModelPassagePayload(rawText: string) {
     user: ["請把下面這段內容修成合法 JSON，只輸出修好的 JSON：", rawText].join("\n\n"),
     maxTokens: 3200,
     temperature: 0,
+    timeoutMs: MODEL_PASSAGE_REPAIR_TIMEOUT_MS,
     taskName: "model-passage-repair",
   });
 
@@ -332,4 +336,9 @@ function stripBom(text: string) {
 function optionalString(value: string | undefined) {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function parsePositiveInt(raw: string | undefined, fallback: number) {
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : fallback;
 }

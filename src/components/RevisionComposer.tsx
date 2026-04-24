@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { NotebookQuickPanel } from "@/components/NotebookQuickPanel";
 import type { NotebookEntrySummary } from "@/lib/notebook";
 import type { RevisionSuggestionCard } from "@/lib/revisionSuggestions";
@@ -25,7 +24,6 @@ export function RevisionComposer({
   aiSuggestions,
   recentNotebookEntries,
 }: RevisionComposerProps) {
-  const router = useRouter();
   const [draft, setDraft] = useState(originalText);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,7 +65,7 @@ export function RevisionComposer({
         throw new Error(typeof body?.error === "string" ? body.error : "暫時未能儲存修訂。");
       }
 
-      router.push(`/submissions/${submissionId}/compare`);
+      navigateTo(`/submissions/${submissionId}/compare`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "暫時未能儲存修訂。");
       setSubmitting(false);
@@ -111,7 +109,7 @@ export function RevisionComposer({
           {hasExistingRevision ? (
             <button
               type="button"
-              onClick={() => router.push(`/submissions/${submissionId}/compare`)}
+              onClick={() => navigateTo(`/submissions/${submissionId}/compare`)}
               className="btn-secondary"
             >
               查看最近一次對照
@@ -367,6 +365,10 @@ function previewText(text: string, limit: number) {
   const chars = Array.from(text.trim());
   if (chars.length <= limit) return text.trim();
   return `${chars.slice(0, limit).join("")}…`;
+}
+
+function navigateTo(url: string) {
+  window.location.assign(url);
 }
 
 function StepChip({

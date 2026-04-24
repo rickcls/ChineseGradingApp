@@ -124,10 +124,14 @@ async function withModelFallback<T>(
   }
 }
 
-async function openRouterFetch(
+type OpenRouterChatResponse = {
+  choices?: Array<{ message?: { content?: unknown } }>;
+};
+
+async function openRouterRequestJson(
   payload: unknown,
   context: { model: string; timeoutMs: number; taskName: string },
-): Promise<Response> {
+): Promise<OpenRouterChatResponse> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error("OPENROUTER_API_KEY is not set");
 
@@ -149,12 +153,18 @@ async function openRouterFetch(
       signal: controller.signal,
     });
 
+    const rawBody = await response.text();
+
     if (!response.ok) {
-      const details = await response.text();
-      throw new Error(`OpenRouter request failed (${response.status}): ${details}`);
+      throw new Error(`OpenRouter request failed (${response.status}): ${rawBody}`);
     }
 
-    return response;
+    try {
+      return JSON.parse(rawBody) as OpenRouterChatResponse;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "invalid JSON";
+      throw new Error(`OpenRouter returned invalid JSON: ${message}`);
+    }
   } catch (error) {
     if (
       controller.signal.aborted ||
@@ -170,7 +180,7 @@ async function openRouterFetch(
 
 async function generateWithOpenRouter(input: GenerateTextInput): Promise<string> {
   return withModelFallback(input, async (model) => {
-    const response = await openRouterFetch(
+    const json = await openRouterRequestJson(
       {
         model,
         temperature: input.temperature ?? 0.2,
@@ -187,9 +197,6 @@ async function generateWithOpenRouter(input: GenerateTextInput): Promise<string>
       },
     );
 
-    const json = (await response.json()) as {
-      choices?: Array<{ message?: { content?: unknown } }>;
-    };
     const content = contentFromOpenRouter(json.choices?.[0]?.message?.content);
     if (!content) throw new Error("OpenRouter returned empty content");
     return content;
@@ -240,7 +247,7 @@ function normalizeAnthropicImageType(mediaType: string): "image/jpeg" | "image/p
 
 async function generateVisionWithOpenRouter(input: GenerateVisionTextInput): Promise<string> {
   return withModelFallback(input, async (model) => {
-    const response = await openRouterFetch(
+    const json = await openRouterRequestJson(
       {
         model,
         temperature: input.temperature ?? 0.1,
@@ -263,9 +270,6 @@ async function generateVisionWithOpenRouter(input: GenerateVisionTextInput): Pro
       },
     );
 
-    const json = (await response.json()) as {
-      choices?: Array<{ message?: { content?: unknown } }>;
-    };
     const content = contentFromOpenRouter(json.choices?.[0]?.message?.content);
     if (!content) throw new Error("OpenRouter returned empty content");
     return content;

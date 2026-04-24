@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
@@ -124,9 +123,9 @@ export default async function SubmissionDetailPage({ params }: { params: { id: s
                 {sourceLabel(submission.source)}
               </span>
               {latestRevision ? (
-                <Link href={`/submissions/${submission.id}/compare`} className="pill pill-positive">
+                <a href={`/submissions/${submission.id}/compare`} className="pill pill-positive">
                   已有修訂對照
-                </Link>
+                </a>
               ) : null}
             </div>
             <div>
@@ -470,8 +469,8 @@ function toNumber(value: unknown, fallback: number): number {
 
 function BackLink() {
   return (
-    <Link href="/" className="btn-secondary inline-flex">
+    <a href="/" className="btn-secondary inline-flex">
       返回主頁
-    </Link>
+    </a>
   );
 }

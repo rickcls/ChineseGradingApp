@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { createPortal } from "react-dom";
+import { useEffect, useRef, useState } from "react";
 import {
   findNormalizedMatch,
   type ModelPassageHighlight,
@@ -31,16 +32,61 @@ export function ModelPassagePanel({
   const [activeHighlightId, setActiveHighlightId] = useState<string | null>(
     initialPassage?.highlights[0]?.id ?? null,
   );
+  const [modalHighlightId, setModalHighlightId] = useState<string | null>(null);
+  const [isMounted, setIsMounted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveStates, setSaveStates] = useState<Record<string, "idle" | "saving" | "saved">>({});
+  const lastTriggerRef = useRef<HTMLElement | null>(null);
+  const shouldRestoreTriggerRef = useRef(false);
 
   const activeHighlight =
     passage?.highlights.find((highlight) => highlight.id === activeHighlightId) ||
     passage?.highlights[0] ||
     null;
+  const modalHighlight =
+    passage?.highlights.find((highlight) => highlight.id === modalHighlightId) || null;
   const originalMatch = activeHighlight ? findNormalizedMatch(originalText, activeHighlight.beforeText) : null;
   const modelMatch = activeHighlight ? findNormalizedMatch(passage?.generatedText || "", activeHighlight.afterText) : null;
+  const originalMatches = passage ? buildHighlightMatches(originalText, passage.highlights, "original") : [];
+  const modelMatches = passage ? buildHighlightMatches(passage.generatedText, passage.highlights, "model") : [];
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!modalHighlight) return;
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        closeHighlightModal();
+      }
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [modalHighlight]);
+
+  useEffect(() => {
+    if (modalHighlightId !== null || !shouldRestoreTriggerRef.current) return;
+
+    shouldRestoreTriggerRef.current = false;
+    const trigger = lastTriggerRef.current;
+    if (!trigger) return;
+
+    const restoreTimer = window.setTimeout(() => {
+      centerElementInView(trigger);
+      trigger.focus({ preventScroll: true });
+    }, 80);
+
+    return () => window.clearTimeout(restoreTimer);
+  }, [modalHighlightId]);
 
   async function openOrGenerate(forceRegenerate: boolean) {
     if (passage && !forceRegenerate) {
@@ -114,6 +160,21 @@ export function ModelPassagePanel({
       setError(err instanceof Error ? err.message : "暫時未能存入筆記本。");
       setSaveStates((current) => ({ ...current, [key]: "idle" }));
     }
+  }
+
+  function openHighlightModal(highlightId: string, trigger?: HTMLElement | null) {
+    if (trigger) {
+      lastTriggerRef.current = trigger;
+      centerElementInView(trigger);
+    }
+
+    setActiveHighlightId(highlightId);
+    setModalHighlightId(highlightId);
+  }
+
+  function closeHighlightModal(options?: { restoreTrigger?: boolean }) {
+    shouldRestoreTriggerRef.current = options?.restoreTrigger !== false;
+    setModalHighlightId(null);
   }
 
   if (!expanded && !passage) {
@@ -260,10 +321,18 @@ export function ModelPassagePanel({
                 <div className="rounded-[1rem] border border-border/70 bg-paper/70 px-4 py-3 text-sm leading-7 text-ink/75">
                   目前對焦：
                   <span className="ml-2 font-medium text-ink">{activeHighlight.focus}</span>
-                  {originalMatch ? "。原文已替你標出這次想學的片段。" : "。這一項比較像整體寫法提醒，所以以下只用卡片說明。"}
+                  {originalMatch
+                    ? `。原文中共有 ${originalMatches.length} 個可點擊的改動位置，點亮起的句子就能查看學習卡。`
+                    : "。這一項比較像整體寫法提醒，所以以下只用卡片說明。"}
                 </div>
               ) : null}
-              <HighlightedPassage text={originalText} snippet={activeHighlight?.beforeText} tone="original" />
+              <InteractiveHighlightedPassage
+                text={originalText}
+                matches={originalMatches}
+                activeHighlightId={activeHighlight?.id ?? null}
+                tone="original"
+                onHighlightSelect={(highlightId, trigger) => openHighlightModal(highlightId, trigger)}
+              />
             </div>
           ) : null}
 
@@ -273,10 +342,18 @@ export function ModelPassagePanel({
                 <div className="rounded-[1rem] border border-good/25 bg-good/10 px-4 py-3 text-sm leading-7 text-ink/75">
                   目前對焦：
                   <span className="ml-2 font-medium text-ink">{activeHighlight.focus}</span>
-                  {modelMatch ? "。AI 範文中已標出相應的寫法。" : "。這一項在全文中未必是逐字重現，所以以下以卡片講解為主。"}
+                  {modelMatch
+                    ? `。AI 範文中共有 ${modelMatches.length} 個可點擊的改寫位置，點句子就能看這裡學了甚麼。`
+                    : "。這一項在全文中未必是逐字重現，所以以下以卡片講解為主。"}
                 </div>
               ) : null}
-              <HighlightedPassage text={passage.generatedText} snippet={activeHighlight?.afterText} tone="model" />
+              <InteractiveHighlightedPassage
+                text={passage.generatedText}
+                matches={modelMatches}
+                activeHighlightId={activeHighlight?.id ?? null}
+                tone="model"
+                onHighlightSelect={(highlightId, trigger) => openHighlightModal(highlightId, trigger)}
+              />
             </div>
           ) : null}
 
@@ -338,10 +415,10 @@ export function ModelPassagePanel({
                         </div>
                         <button
                           type="button"
-                          onClick={() => setActiveHighlightId(highlight.id)}
+                          onClick={(event) => openHighlightModal(highlight.id, event.currentTarget)}
                           className="btn-secondary px-4 py-2 text-xs"
                         >
-                          {isActive ? "目前查看中" : "查看這項"}
+                          {isActive ? "打開學習卡" : "查看這項"}
                         </button>
                       </div>
 
@@ -388,6 +465,25 @@ export function ModelPassagePanel({
           ) : null}
         </>
       )}
+
+      {modalHighlight && isMounted
+        ? createPortal(
+            <HighlightLearningModal
+              highlight={modalHighlight}
+              phraseState={saveStates[`${modalHighlight.id}:phrase`] || "idle"}
+              lessonState={saveStates[`${modalHighlight.id}:lesson`] || "idle"}
+              onClose={() => closeHighlightModal()}
+              onOpenFullReview={() => {
+                setActiveHighlightId(modalHighlight.id);
+                setActiveTab("highlights");
+                closeHighlightModal({ restoreTrigger: false });
+              }}
+              onSavePhrase={() => saveHighlight(modalHighlight, "phrase")}
+              onSaveLesson={() => saveHighlight(modalHighlight, "lesson")}
+            />,
+            document.body,
+          )
+        : null}
     </section>
   );
 }
@@ -410,39 +506,217 @@ function MiniFeature({
   );
 }
 
-function HighlightedPassage({
+type PassageMatch = {
+  highlight: ModelPassageHighlight;
+  order: number;
+  start: number;
+  end: number;
+};
+
+function InteractiveHighlightedPassage({
   text,
-  snippet,
+  matches,
+  activeHighlightId,
   tone,
+  onHighlightSelect,
 }: {
   text: string;
-  snippet?: string;
+  matches: PassageMatch[];
+  activeHighlightId: string | null;
   tone: "original" | "model";
+  onHighlightSelect: (highlightId: string, trigger: HTMLButtonElement) => void;
 }) {
-  const match = snippet ? findNormalizedMatch(text, snippet) : null;
-  const markClass =
+  const toneClass =
     tone === "model"
-      ? "rounded-md bg-good/20 px-1 text-ink"
-      : "rounded-md bg-accent/15 px-1 text-ink";
+      ? "border border-good/20 bg-white"
+      : "border border-border/70 bg-paper/80";
+
+  const activeClass =
+    tone === "model"
+      ? "bg-good/25 text-ink shadow-soft"
+      : "bg-accent/20 text-ink shadow-soft";
+
+  const idleClass =
+    tone === "model"
+      ? "bg-good/10 text-ink hover:bg-good/20"
+      : "bg-accent/10 text-ink hover:bg-accent/15";
+
+  if (matches.length === 0) {
+    return (
+      <div className={["prose-zh whitespace-pre-wrap rounded-[1.15rem] p-4", toneClass].join(" ")}>
+        {text}
+      </div>
+    );
+  }
+
+  let cursor = 0;
 
   return (
-    <div
-      className={[
-        "prose-zh whitespace-pre-wrap rounded-[1.15rem] p-4",
-        tone === "model" ? "border border-good/20 bg-white" : "border border-border/70 bg-paper/80",
-      ].join(" ")}
-    >
-      {!match ? (
-        text
-      ) : (
-        <>
-          {text.slice(0, match.start)}
-          <mark className={markClass}>{text.slice(match.start, match.end)}</mark>
-          {text.slice(match.end)}
-        </>
-      )}
+    <div className={["prose-zh whitespace-pre-wrap rounded-[1.15rem] p-4", toneClass].join(" ")}>
+      {matches.map((match) => {
+        const segment = (
+          <button
+            key={`${match.highlight.id}-${match.start}-${match.end}`}
+            type="button"
+            onClick={(event) => onHighlightSelect(match.highlight.id, event.currentTarget)}
+            className={[
+              "inline scroll-mt-28 rounded-md px-1 py-0.5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2",
+              activeHighlightId === match.highlight.id ? activeClass : idleClass,
+            ].join(" ")}
+          >
+            {text.slice(match.start, match.end)}
+            <span className="ml-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full border border-white/80 bg-white/85 px-1 text-[0.65rem] leading-none text-ink/70">
+              {match.order}
+            </span>
+          </button>
+        );
+
+        const content = (
+          <span key={`${match.highlight.id}-${match.start}-${match.end}`}>
+            {cursor < match.start ? text.slice(cursor, match.start) : null}
+            {segment}
+          </span>
+        );
+        cursor = match.end;
+        return content;
+      })}
+      {cursor < text.length ? text.slice(cursor) : null}
     </div>
   );
+}
+
+function HighlightLearningModal({
+  highlight,
+  phraseState,
+  lessonState,
+  onClose,
+  onOpenFullReview,
+  onSavePhrase,
+  onSaveLesson,
+}: {
+  highlight: ModelPassageHighlight;
+  phraseState: "idle" | "saving" | "saved";
+  lessonState: "idle" | "saving" | "saved";
+  onClose: () => void;
+  onOpenFullReview: () => void;
+  onSavePhrase: () => void;
+  onSaveLesson: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[120] flex items-center justify-center bg-ink/40 px-4 py-6 backdrop-blur-[2px]"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-[1.5rem] border border-accent/20 bg-cream shadow-[0_24px_80px_rgba(22,24,29,0.28)]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-border/60 bg-cream/95 px-5 py-4 backdrop-blur sm:px-6">
+          <div>
+            <div className="flex flex-wrap items-center gap-2 text-[0.68rem] tracking-[0.16em] text-muted">
+              <span className="rounded-full border border-accent/20 bg-white/85 px-2 py-0.5 tracking-normal text-accent">
+                {highlight.focus}
+              </span>
+              <span>句子學習卡</span>
+            </div>
+            <h4 className="mt-2 text-xl">這裡可以學走甚麼</h4>
+          </div>
+
+          <button type="button" onClick={onClose} className="btn-secondary px-4 py-2 text-xs">
+            關閉
+          </button>
+        </div>
+
+        <div className="space-y-5 px-5 py-5 sm:px-6 sm:py-6">
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded-[1rem] border border-border/70 bg-white/85 px-4 py-4">
+              <p className="text-[0.68rem] tracking-[0.16em] text-muted">原文片段</p>
+              <p className="mt-2 font-serif text-base leading-8 text-ink/85">
+                {highlight.beforeText || "這一項偏向整體寫法提醒，所以未必有單一句子可對照。"}
+              </p>
+            </div>
+
+            <div className="rounded-[1rem] border border-good/30 bg-good/10 px-4 py-4">
+              <p className="text-[0.68rem] tracking-[0.16em] text-good">AI 改寫片段</p>
+              <p className="mt-2 font-serif text-base leading-8 text-ink">{highlight.afterText}</p>
+            </div>
+          </div>
+
+          <div className="grid gap-3 lg:grid-cols-3">
+            <InsightBlock label="它改了甚麼" tone="muted" text={highlight.whatChanged} />
+            <InsightBlock label="為何這樣更好" tone="positive" text={highlight.whyItHelps} />
+            <InsightBlock label="下次記住" tone="primary" text={highlight.keepInMind} />
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={onSavePhrase}
+              disabled={phraseState === "saving" || phraseState === "saved"}
+              className="btn-secondary px-4 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {phraseState === "saved" ? "已收藏句式" : phraseState === "saving" ? "收藏中…" : "收藏句式"}
+            </button>
+            <button
+              type="button"
+              onClick={onSaveLesson}
+              disabled={lessonState === "saving" || lessonState === "saved"}
+              className="btn-secondary px-4 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {lessonState === "saved" ? "已記下提醒" : lessonState === "saving" ? "記錄中…" : "記下提醒"}
+            </button>
+            <button type="button" onClick={onOpenFullReview} className="btn-secondary px-4 py-2 text-xs">
+              打開重點變化總覽
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function buildHighlightMatches(
+  text: string,
+  highlights: ModelPassageHighlight[],
+  source: "original" | "model",
+) {
+  const rawMatches = highlights
+    .map((highlight, index) => {
+      const snippet = source === "original" ? highlight.beforeText : highlight.afterText;
+      const match = findNormalizedMatch(text, snippet);
+      if (!match) return null;
+
+      return {
+        highlight,
+        order: index + 1,
+        start: match.start,
+        end: match.end,
+      };
+    })
+    .filter((item): item is PassageMatch => Boolean(item))
+    .sort((left, right) => {
+      if (left.start !== right.start) return left.start - right.start;
+      return right.end - left.end;
+    });
+
+  const accepted: PassageMatch[] = [];
+  let cursor = -1;
+
+  for (const match of rawMatches) {
+    if (match.start < cursor) continue;
+    accepted.push(match);
+    cursor = match.end;
+  }
+
+  return accepted;
+}
+
+function centerElementInView(element: HTMLElement) {
+  element.scrollIntoView({
+    behavior: "smooth",
+    block: "center",
+    inline: "nearest",
+  });
 }
 
 function InsightBlock({
