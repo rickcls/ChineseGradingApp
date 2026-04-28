@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 const COOKIE = "ccoach_uid";
 const ONE_YEAR = 60 * 60 * 24 * 365;
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   if (req.cookies.get(COOKIE)) return NextResponse.next();
 
   const id = crypto.randomUUID();

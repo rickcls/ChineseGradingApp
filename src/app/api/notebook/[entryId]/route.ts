@@ -11,7 +11,8 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function PATCH(req: Request, { params }: { params: { entryId: string } }) {
+export async function PATCH(req: Request, props: { params: Promise<{ entryId: string }> }) {
+  const params = await props.params;
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
 
@@ -59,7 +60,8 @@ export async function PATCH(req: Request, { params }: { params: { entryId: strin
   return NextResponse.json({ entry: serializeNotebookEntry(updated) });
 }
 
-export async function DELETE(_req: Request, { params }: { params: { entryId: string } }) {
+export async function DELETE(_req: Request, props: { params: Promise<{ entryId: string }> }) {
+  const params = await props.params;
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
 

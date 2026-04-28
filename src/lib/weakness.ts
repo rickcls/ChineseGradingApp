@@ -1,5 +1,5 @@
 import { prisma } from "./db";
-import type { ErrorRecord } from "@prisma/client";
+import type { ErrorRecord, Prisma } from "@prisma/client";
 
 const EWMA_ALPHA = 0.3;
 const CONFIRM_MIN_COUNT = 3;
@@ -102,6 +102,60 @@ export async function updateWeaknessProfiles(params: {
   }
 
   return { updated: grouped.size, carriedForward: existing.length - grouped.size };
+}
+
+export async function removeSubmissionFromWeaknessProfiles(params: {
+  userId: string;
+  submissionId: string;
+  errors: Pick<ErrorRecord, "category" | "subcategory" | "severity" | "ocrSuspect">[];
+  client?: typeof prisma | Prisma.TransactionClient;
+}) {
+  const { userId, submissionId, client = prisma } = params;
+  const eligible = params.errors.filter((e) => !e.ocrSuspect);
+  const decrements = new Map<string, number>();
+  for (const error of eligible) {
+    const key = `${error.category}::${error.subcategory}`;
+    decrements.set(key, (decrements.get(key) || 0) + 1);
+  }
+
+  const profiles = await client.weaknessProfile.findMany({ where: { userId } });
+  let updated = 0;
+  let removed = 0;
+
+  for (const profile of profiles) {
+    const key = `${profile.category}::${profile.subcategory}`;
+    const count = decrements.get(key) || 0;
+    const evidenceCount = Math.max(0, profile.evidenceCount - count);
+    const evidenceSubmissionIds = profile.evidenceSubmissionIds.filter((id) => id !== submissionId);
+    const previousRecentCounts: Windowed[] = Array.isArray(profile.recentCounts)
+      ? (profile.recentCounts as unknown as Windowed[])
+      : [];
+    const recentCounts = previousRecentCounts.filter((item) => item.submissionId !== submissionId);
+    const changed =
+      count > 0 ||
+      evidenceSubmissionIds.length !== profile.evidenceSubmissionIds.length ||
+      recentCounts.length !== previousRecentCounts.length;
+    if (!changed) continue;
+
+    if (evidenceCount === 0 && evidenceSubmissionIds.length === 0) {
+      await client.weaknessProfile.delete({ where: { id: profile.id } });
+      removed += 1;
+      continue;
+    }
+
+    await client.weaknessProfile.update({
+      where: { id: profile.id },
+      data: {
+        evidenceCount,
+        evidenceSubmissionIds,
+        recentCounts: recentCounts as unknown as object,
+        status: deriveStatus({ windowNext: recentCounts, evidenceCount }),
+      },
+    });
+    updated += 1;
+  }
+
+  return { updated, removed };
 }
 
 function deriveStatus(params: { windowNext: Windowed[]; evidenceCount: number }): "watching" | "confirmed" | "improving" | "resolved" {

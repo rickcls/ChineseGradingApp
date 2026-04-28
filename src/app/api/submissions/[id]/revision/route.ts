@@ -10,7 +10,8 @@ const Body = z.object({
   targetedErrorIds: z.array(z.string()).optional(),
 });
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
 

@@ -15,6 +15,13 @@ type NotebookQuickPanelProps = {
   intro?: string;
 };
 
+type NotebookNoteDraft = {
+  title?: string;
+  content: string;
+  focusTag?: string;
+  tags?: string[];
+};
+
 export function NotebookQuickPanel({
   entries,
   submissionId,
@@ -28,6 +35,7 @@ export function NotebookQuickPanel({
   const [focusTag, setFocusTag] = useState("");
   const [tagInput, setTagInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -76,6 +84,45 @@ export function NotebookQuickPanel({
     }
   }
 
+  async function generateAiDraft() {
+    if (!submissionId) return;
+
+    if (
+      (draftTitle.trim() || draftContent.trim() || focusTag || tagInput.trim()) &&
+      !window.confirm("AI 生成的筆記會覆蓋目前草稿，是否繼續？")
+    ) {
+      return;
+    }
+
+    setGenerating(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/submissions/${submissionId}/notebook-note`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          focusTag: focusTag || undefined,
+        }),
+      });
+
+      const body = await response.json().catch(() => null);
+      if (!response.ok || !body?.draft) {
+        throw new Error(typeof body?.error === "string" ? body.error : "暫時未能生成筆記草稿。");
+      }
+
+      const draft = body.draft as NotebookNoteDraft;
+      setDraftTitle(draft.title || "");
+      setDraftContent(draft.content);
+      setFocusTag(draft.focusTag || "");
+      setTagInput((draft.tags || []).join("，"));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "暫時未能生成筆記草稿。");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
   return (
     <div className="paper-panel p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -101,22 +148,11 @@ export function NotebookQuickPanel({
           />
         </label>
 
-        <label className="block">
-          <span className="field-label">這次想記住甚麼？</span>
-          <textarea
-            value={draftContent}
-            onChange={(event) => setDraftContent(event.target.value)}
-            rows={4}
-            className="field-input resize-y leading-7"
-            placeholder="例如：先寫事件，再補一層心情，最後用一句話說清楚這件事對我有甚麼影響。"
-          />
-        </label>
-
         <div className="grid gap-3 sm:grid-cols-[minmax(0,0.75fr)_minmax(0,1.25fr)]">
           <label className="block">
-            <span className="field-label">重點分類</span>
+            <span className="field-label">評分準則／重點分類</span>
             <select value={focusTag} onChange={(event) => setFocusTag(event.target.value)} className="field-input">
-              <option value="">未分類</option>
+              <option value="">由 AI 選擇</option>
               {NOTEBOOK_FOCUS_TAGS.map((tag) => (
                 <option key={tag} value={tag}>
                   {tag}
@@ -135,6 +171,24 @@ export function NotebookQuickPanel({
             />
           </label>
         </div>
+
+        <label className="block">
+          <span className="field-label">這次想記住甚麼？</span>
+          <textarea
+            value={draftContent}
+            onChange={(event) => setDraftContent(event.target.value)}
+            rows={9}
+            className="field-input min-h-[17rem] resize-y leading-7"
+            placeholder={[
+              "例如：",
+              "【評分準則】內容",
+              "【原文例子】……",
+              "【可記住的方法】先寫事件，再補一層心情。",
+              "【示範改寫】……",
+              "【下次檢查】……",
+            ].join("\n")}
+          />
+        </label>
       </div>
 
       {error ? (
@@ -147,14 +201,26 @@ export function NotebookQuickPanel({
         <span className="text-xs leading-6 text-muted">
           {submissionId ? "這則筆記會連回目前這篇文章。" : "這則筆記會儲存在你的個人筆記本中。"}
         </span>
-        <button
-          type="button"
-          onClick={createManualEntry}
-          disabled={submitting || draftContent.trim().length < 2}
-          className="btn-primary"
-        >
-          {submitting ? "儲存中…" : "記下這次提醒"}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {submissionId ? (
+            <button
+              type="button"
+              onClick={generateAiDraft}
+              disabled={generating || submitting}
+              className="btn-secondary"
+            >
+              {generating ? "生成中…" : focusTag ? `AI 生成${focusTag}筆記` : "AI 生成筆記"}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={createManualEntry}
+            disabled={submitting || generating || draftContent.trim().length < 2}
+            className="btn-primary"
+          >
+            {submitting ? "儲存中…" : "記下這次提醒"}
+          </button>
+        </div>
       </div>
 
       <div className="mt-5 border-t border-border/60 pt-5">
@@ -191,7 +257,7 @@ export function NotebookQuickPanel({
                   {entry.submissionPreview ? <span>來自：{entry.submissionPreview}</span> : null}
                 </div>
                 {entry.title ? <p className="mt-2 font-medium text-ink">{entry.title}</p> : null}
-                <p className={entry.title ? "mt-1 text-sm leading-7 text-ink/80" : "mt-2 text-sm leading-7 text-ink/80"}>
+                <p className={entry.title ? "mt-1 whitespace-pre-line text-sm leading-7 text-ink/80" : "mt-2 whitespace-pre-line text-sm leading-7 text-ink/80"}>
                   {entry.content}
                 </p>
                 {entry.tags.length > 0 ? (

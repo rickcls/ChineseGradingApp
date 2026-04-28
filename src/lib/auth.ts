@@ -18,7 +18,7 @@ async function findOrCreate(id: string, params?: { displayName?: string; gradeLe
 // Safe in pages, route handlers, and server actions. The middleware guarantees
 // the cookie exists on every request, so no cookies().set() call is needed here.
 export async function getOrCreateUser(params?: { displayName?: string; gradeLevel?: string }) {
-  const jar = cookies();
+  const jar = await cookies();
   const id = jar.get(COOKIE)?.value;
   if (!id) {
     // Middleware should prevent this, but fall back gracefully.
@@ -28,7 +28,7 @@ export async function getOrCreateUser(params?: { displayName?: string; gradeLeve
 }
 
 export async function getCurrentUser() {
-  const jar = cookies();
+  const jar = await cookies();
   const id = jar.get(COOKIE)?.value;
   if (!id) return null;
   return prisma.user.findUnique({ where: { id } });

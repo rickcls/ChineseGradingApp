@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const user = await getOrCreateUser();
-  const [submissions, confirmed, improving] = await Promise.all([
+  const [submissions, submissionStats, totalSubmissionCount, revisionsStarted, confirmed, improving] = await Promise.all([
     prisma.submission.findMany({
       where: { userId: user.id },
       orderBy: { createdAt: "desc" },
@@ -17,6 +17,16 @@ export default async function DashboardPage() {
         analyses: { orderBy: { createdAt: "desc" }, take: 1 },
         revisionOrigin: { orderBy: { createdAt: "desc" }, take: 1 },
       },
+    }),
+    prisma.submission.findMany({
+      where: { userId: user.id },
+      select: { createdAt: true, source: true },
+    }),
+    prisma.submission.count({
+      where: { userId: user.id },
+    }),
+    prisma.revisionSession.count({
+      where: { userId: user.id },
     }),
     prisma.weaknessProfile.findMany({
       where: { userId: user.id, status: "confirmed" },
@@ -34,8 +44,8 @@ export default async function DashboardPage() {
   const averageScore = analyses.length
     ? analyses.reduce((sum, analysis) => sum + analysis.overallScore, 0) / analyses.length
     : null;
-  const activeDays = new Set(submissions.map((submission) => submission.createdAt.toISOString().slice(0, 10))).size;
-  const revisionsStarted = submissions.filter((submission) => submission.revisionOrigin.length > 0).length;
+  const activeDays = new Set(submissionStats.map((submission) => submission.createdAt.toISOString().slice(0, 10))).size;
+  const uploadedSubmissions = submissionStats.filter((submission) => submission.source !== "typed").length;
 
   return (
     <div className="space-y-8">
@@ -44,7 +54,7 @@ export default async function DashboardPage() {
           <div className="space-y-4">
             <p className="section-kicker">學生主頁</p>
             <div>
-              <h1 className="text-3xl sm:text-4xl">{greetingFor(user.displayName, submissions.length)}</h1>
+              <h1 className="text-3xl sm:text-4xl">{greetingFor(user.displayName, totalSubmissionCount)}</h1>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-ink/75">
                 這裡記錄的不是你哪裡做得不夠，而是你已經寫了多少、正在改善什麼、下一步可以先從哪裡開始。
               </p>
@@ -56,11 +66,14 @@ export default async function DashboardPage() {
               <Link href="/weaknesses" className="btn-secondary">
                 查看能力地圖
               </Link>
+              <Link href="/submissions" className="btn-secondary">
+                查看所有作品
+              </Link>
             </div>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
-            <MetricCard label="已寫文章" value={`${submissions.length}`} hint="每一篇都在累積你的寫作肌肉" />
+            <MetricCard label="已寫文章" value={`${totalSubmissionCount}`} hint="每一篇都在累積你的寫作肌肉" />
             <MetricCard
               label="最近平均"
               value={averageScore ? averageScore.toFixed(0) : "—"}
@@ -125,7 +138,7 @@ export default async function DashboardPage() {
                 <div className="mt-1 text-xs text-muted">有練習的日子</div>
               </div>
               <div className="rounded-2xl border border-border/70 bg-white/75 px-4 py-4">
-                <div className="text-2xl text-ink">{submissions.filter((submission) => submission.source !== "typed").length}</div>
+                <div className="text-2xl text-ink">{uploadedSubmissions}</div>
                 <div className="mt-1 text-xs text-muted">次照片／掃描交稿</div>
               </div>
             </div>
@@ -139,9 +152,14 @@ export default async function DashboardPage() {
             <p className="section-kicker">最近作品</p>
             <h2 className="mt-2 text-2xl">從最近幾篇裡看看自己的節奏</h2>
           </div>
-          <Link href="/submissions/new" className="btn-secondary">
-            再交一篇
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/submissions" className="btn-secondary">
+              查看全部
+            </Link>
+            <Link href="/submissions/new" className="btn-secondary">
+              再交一篇
+            </Link>
+          </div>
         </div>
 
         {submissions.length === 0 ? (

@@ -5,7 +5,8 @@ import { usePathname } from "next/navigation";
 
 const NAV_ITEMS = [
   { href: "/", label: "主頁" },
-  { href: "/submissions/new", label: "新作提交" },
+  { href: "/submissions/new", label: "新作提交", exact: true },
+  { href: "/submissions", label: "作品紀錄" },
   { href: "/notebook", label: "學習筆記" },
   { href: "/weaknesses", label: "能力地圖" },
 ];
@@ -42,7 +43,13 @@ export function Header() {
           <nav className="flex flex-wrap gap-2 text-sm">
             {NAV_ITEMS.map((item) => {
               const active =
-                item.href === "/" ? pathname === "/" : pathname === item.href || pathname.startsWith(`${item.href}/`);
+                item.href === "/"
+                  ? pathname === "/"
+                  : item.exact
+                    ? pathname === item.href
+                    : item.href === "/submissions"
+                      ? pathname === "/submissions" || (pathname.startsWith("/submissions/") && !pathname.startsWith("/submissions/new"))
+                      : pathname === item.href || pathname.startsWith(`${item.href}/`);
 
               return (
                 <Link

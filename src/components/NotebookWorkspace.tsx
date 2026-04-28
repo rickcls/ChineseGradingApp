@@ -173,8 +173,8 @@ export function NotebookWorkspace({
               <textarea
                 value={draftContent}
                 onChange={(event) => setDraftContent(event.target.value)}
-                rows={5}
-                className="field-input resize-y leading-7"
+                rows={8}
+                className="field-input min-h-[15rem] resize-y leading-7"
                 placeholder="例如：結尾不要只停在事件結束，要補一句『這件事讓我明白……』，讓主題真正落地。"
               />
             </label>
@@ -358,8 +358,8 @@ export function NotebookWorkspace({
                       <textarea
                         value={editContent}
                         onChange={(event) => setEditContent(event.target.value)}
-                        rows={4}
-                        className="field-input resize-y leading-7"
+                        rows={8}
+                        className="field-input min-h-[15rem] resize-y leading-7"
                       />
 
                       <div className="grid gap-3 sm:grid-cols-[minmax(0,0.75fr)_minmax(0,1.25fr)]">
@@ -381,7 +381,7 @@ export function NotebookWorkspace({
                     </div>
                   ) : (
                     <>
-                      <p className="mt-4 text-sm leading-7 text-ink/85">{entry.content}</p>
+                      <p className="mt-4 whitespace-pre-line text-sm leading-7 text-ink/85">{entry.content}</p>
 
                       {entry.sourceBeforeText || entry.sourceAfterText ? (
                         <div className="mt-4 grid gap-3 md:grid-cols-2">

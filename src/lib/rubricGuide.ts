@@ -65,7 +65,7 @@ export function loadRubricGuideMarkdown(): string {
   if (cachedRubricGuide) return cachedRubricGuide;
 
   for (const fileName of RUBRIC_GUIDE_FILES) {
-    const filePath = path.join(process.cwd(), fileName);
+    const filePath = path.join(/* turbopackIgnore: true */ process.cwd(), fileName);
     try {
       cachedRubricGuide = readFileSync(filePath, "utf8").trim();
       return cachedRubricGuide;

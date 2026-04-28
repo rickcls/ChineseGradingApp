@@ -8,7 +8,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-export async function POST(_req: Request, { params }: { params: { id: string } }) {
+export async function POST(_req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
 
