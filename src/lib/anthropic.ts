@@ -37,10 +37,17 @@ type GenerateTextInput = {
   temperature?: number;
   timeoutMs?: number;
   taskName?: string;
+  cacheSystem?: boolean;
 };
 
 type GenerateVisionTextInput = GenerateTextInput & {
   imageDataUrl: string;
+};
+
+type StreamChunkHandler = (chunk: string) => void;
+
+type GenerateTextStreamInput = GenerateTextInput & {
+  onChunk?: StreamChunkHandler;
 };
 
 function contentFromOpenRouter(raw: unknown): string {
@@ -178,6 +185,20 @@ async function openRouterRequestJson(
   }
 }
 
+function buildSystemMessage(system: string, cacheSystem: boolean) {
+  if (!cacheSystem) {
+    return { role: "system" as const, content: system };
+  }
+  // Anthropic models read cache_control markers; Gemini ignores the marker but
+  // benefits from implicit prefix caching when the system content is stable.
+  return {
+    role: "system" as const,
+    content: [
+      { type: "text" as const, text: system, cache_control: { type: "ephemeral" as const } },
+    ],
+  };
+}
+
 async function generateWithOpenRouter(input: GenerateTextInput): Promise<string> {
   return withModelFallback(input, async (model) => {
     const json = await openRouterRequestJson(
@@ -186,7 +207,7 @@ async function generateWithOpenRouter(input: GenerateTextInput): Promise<string>
         temperature: input.temperature ?? 0.2,
         max_tokens: input.maxTokens ?? 4096,
         messages: [
-          { role: "system", content: input.system },
+          buildSystemMessage(input.system, input.cacheSystem ?? false),
           { role: "user", content: input.user },
         ],
       },
@@ -316,6 +337,154 @@ export async function generateModelText(input: GenerateTextInput): Promise<strin
     return generateWithOpenRouter(input);
   }
   return generateWithAnthropic(input);
+}
+
+async function openRouterRequestStream(
+  payload: unknown,
+  context: { model: string; timeoutMs: number; taskName: string },
+  onChunk: StreamChunkHandler,
+): Promise<string> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) throw new Error("OPENROUTER_API_KEY is not set");
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), context.timeoutMs);
+  let assembled = "";
+
+  try {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+        ...(process.env.OPENROUTER_HTTP_REFERER
+          ? { "HTTP-Referer": process.env.OPENROUTER_HTTP_REFERER }
+          : {}),
+        ...(process.env.OPENROUTER_APP_NAME ? { "X-Title": process.env.OPENROUTER_APP_NAME } : {}),
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const rawBody = await response.text().catch(() => "");
+      throw new Error(`OpenRouter request failed (${response.status}): ${rawBody}`);
+    }
+
+    if (!response.body) {
+      throw new Error("OpenRouter stream response had no body");
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      // SSE events are separated by blank lines.
+      let sepIdx: number;
+      while ((sepIdx = buffer.indexOf("\n\n")) !== -1) {
+        const rawEvent = buffer.slice(0, sepIdx);
+        buffer = buffer.slice(sepIdx + 2);
+        const delta = parseSseEvent(rawEvent);
+        if (delta === SSE_DONE) {
+          return assembled;
+        }
+        if (delta) {
+          assembled += delta;
+          onChunk(delta);
+        }
+      }
+    }
+
+    // Flush any trailing partial event.
+    if (buffer.trim().length > 0) {
+      const delta = parseSseEvent(buffer);
+      if (delta && delta !== SSE_DONE) {
+        assembled += delta;
+        onChunk(delta);
+      }
+    }
+
+    return assembled;
+  } catch (error) {
+    if (
+      controller.signal.aborted ||
+      (error instanceof Error && error.name === "AbortError")
+    ) {
+      throw new Error(`OpenRouter ${context.taskName} timed out after ${context.timeoutMs}ms using ${context.model}`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+const SSE_DONE = Symbol("sse-done") as unknown as string;
+
+function parseSseEvent(rawEvent: string): string | null {
+  // Each event is one or more lines; we only care about "data:" payloads.
+  const dataLines: string[] = [];
+  for (const line of rawEvent.split("\n")) {
+    const trimmed = line.trimStart();
+    if (!trimmed.startsWith("data:")) continue;
+    dataLines.push(trimmed.slice(5).trim());
+  }
+  if (dataLines.length === 0) return null;
+
+  const data = dataLines.join("\n");
+  if (data === "[DONE]") return SSE_DONE;
+
+  try {
+    const json = JSON.parse(data) as {
+      choices?: Array<{ delta?: { content?: unknown }; message?: { content?: unknown } }>;
+    };
+    const choice = json.choices?.[0];
+    const deltaContent = choice?.delta?.content ?? choice?.message?.content;
+    return contentFromOpenRouter(deltaContent);
+  } catch {
+    return null;
+  }
+}
+
+async function generateWithOpenRouterStream(input: GenerateTextStreamInput): Promise<string> {
+  return withModelFallback(input, async (model) => {
+    const text = await openRouterRequestStream(
+      {
+        model,
+        temperature: input.temperature ?? 0.2,
+        max_tokens: input.maxTokens ?? 4096,
+        stream: true,
+        messages: [
+          buildSystemMessage(input.system, input.cacheSystem ?? false),
+          { role: "user", content: input.user },
+        ],
+      },
+      {
+        model,
+        timeoutMs: input.timeoutMs ?? DEFAULT_ANALYSIS_TIMEOUT_MS,
+        taskName: input.taskName || "text",
+      },
+      input.onChunk ?? (() => {}),
+    );
+    if (!text) throw new Error("OpenRouter returned empty content");
+    return text;
+  });
+}
+
+export async function generateModelTextStream(input: GenerateTextStreamInput): Promise<string> {
+  if (process.env.OPENROUTER_API_KEY) {
+    return generateWithOpenRouterStream(input);
+  }
+  // Anthropic SDK path: no token-level streaming wired; fall back to a single
+  // blocking call and emit the full payload as one chunk so callers see progress.
+  const text = await generateWithAnthropic(input);
+  input.onChunk?.(text);
+  return text;
 }
 
 export async function generateVisionModelText(input: GenerateVisionTextInput): Promise<string> {

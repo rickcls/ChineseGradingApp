@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const user = await getOrCreateUser();
-  const [submissions, submissionStats, totalSubmissionCount, revisionsStarted, confirmed, improving] = await Promise.all([
+  const [submissions, submissionStats, totalSubmissionCount, revisionsStarted, confirmed, improving] = await prisma.$transaction([
     prisma.submission.findMany({
       where: { userId: user.id },
       orderBy: { createdAt: "desc" },

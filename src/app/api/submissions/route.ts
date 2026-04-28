@@ -15,114 +15,233 @@ const Body = z.object({
   taskPrompt: z.string().optional(),
   genre: z.string().optional(),
   source: z.enum(["typed", "photo", "scan"]).optional(),
+  stream: z.boolean().optional(),
 });
 
 export async function POST(req: Request) {
+  const json = await req.json().catch(() => null);
+  const parsed = Body.safeParse(json);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+  }
+
+  const user = await getOrCreateUser({ gradeLevel: parsed.data.gradeLevel });
+  if (parsed.data.gradeLevel && parsed.data.gradeLevel !== user.gradeLevel) {
+    await prisma.user.update({ where: { id: user.id }, data: { gradeLevel: parsed.data.gradeLevel } });
+  }
+
+  if (parsed.data.stream) {
+    return streamingResponse(parsed.data, user.id);
+  }
+
+  return jsonResponse(parsed.data, user.id);
+}
+
+type Body = z.infer<typeof Body>;
+
+async function jsonResponse(body: Body, userId: string) {
   let submissionId: string | null = null;
-
   try {
-    const json = await req.json().catch(() => null);
-    const parsed = Body.safeParse(json);
-    if (!parsed.success) {
-      return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-    }
-
-    const user = await getOrCreateUser({ gradeLevel: parsed.data.gradeLevel });
-    if (parsed.data.gradeLevel && parsed.data.gradeLevel !== user.gradeLevel) {
-      await prisma.user.update({ where: { id: user.id }, data: { gradeLevel: parsed.data.gradeLevel } });
-    }
-
-    const submission = await prisma.submission.create({
-      data: {
-        userId: user.id,
-        type: "writing",
-        source: parsed.data.source || "typed",
-        rawText: parsed.data.text,
-        verifiedText: parsed.data.text,
-        status: "verified",
-      },
-    });
-    submissionId = submission.id;
-
-    const { result, modelName, promptVersion } = await analyzeSubmission({
-      text: parsed.data.text,
-      gradeLevel: parsed.data.gradeLevel || user.gradeLevel,
-      genre: parsed.data.genre,
-      taskPrompt: parsed.data.taskPrompt,
-    });
-
-    const analysis = await prisma.analysis.create({
-      data: {
-        submissionId: submission.id,
-        scores: {
-          ...result.scores,
-          word_count: result.word_count,
-          typo_count: result.typo_count,
-          typo_bonus: result.typo_bonus,
-          base_score: result.base_score,
-          dse_level: result.dse_level,
+    const submissionPromise = prisma.submission
+      .create({
+        data: {
+          userId,
+          type: "writing",
+          source: body.source || "typed",
+          rawText: body.text,
+          verifiedText: body.text,
+          status: "verified",
         },
-        overallScore: result.overall_score,
-        modelName,
-        promptVersion,
-        coachFeedbackText: result.coach_feedback,
-        revisionPriorities: result.revision_priorities,
-        strengths: result.strengths,
-      },
-    });
-
-    if (result.errors.length) {
-      await prisma.errorRecord.createMany({
-        data: result.errors.map((e) => ({
-          submissionId: submission.id,
-          analysisId: analysis.id,
-          category: e.category,
-          subcategory: e.subcategory,
-          evidenceSpan: e.evidence_span,
-          charOffsetStart: e.char_offset_start,
-          charOffsetEnd: e.char_offset_end,
-          suggestion: e.suggestion,
-          exampleFix: e.example_fix ?? null,
-          severity: e.severity,
-          ocrSuspect: false,
-          confidence: e.confidence ?? 0.8,
-        })),
+      })
+      .then((submission) => {
+        submissionId = submission.id;
+        return submission;
       });
-    }
-
-    await prisma.submission.update({
-      where: { id: submission.id },
-      data: { status: "analyzed" },
+    const analysisPromise = analyzeSubmission({
+      text: body.text,
+      gradeLevel: body.gradeLevel || "S2",
+      genre: body.genre,
+      taskPrompt: body.taskPrompt,
     });
 
-    const persistedErrors = await prisma.errorRecord.findMany({
-      where: { submissionId: submission.id },
-      select: { category: true, subcategory: true, severity: true, ocrSuspect: true },
-    });
-    await updateWeaknessProfiles({
-      userId: user.id,
-      submissionId: submission.id,
-      submissionDate: submission.createdAt,
-      errors: persistedErrors,
-    });
+    const [submission, analysisOutcome] = await Promise.all([submissionPromise, analysisPromise]);
 
+    await persistAnalysis(submission, analysisOutcome, userId);
     return NextResponse.json({ id: submission.id }, { status: 201 });
   } catch (err) {
     console.error("Submission analysis failed", err);
-    if (submissionId) {
-      await prisma.submission.update({
-        where: { id: submissionId },
-        data: { status: "failed" },
-      }).catch(() => null);
-    }
-    const message =
-      err instanceof z.ZodError
-        ? "分析結果格式暫時不完整，請稍後再試。"
-        : err instanceof Error
-          ? err.message
-          : "analysis failed";
-    return NextResponse.json({ error: message, submissionId: submissionId || undefined }, { status: 500 });
+    await markFailed(submissionId);
+    return NextResponse.json(
+      { error: formatError(err), submissionId: submissionId || undefined },
+      { status: 500 },
+    );
   }
+}
+
+function streamingResponse(body: Body, userId: string) {
+  const encoder = new TextEncoder();
+  const readable = new ReadableStream({
+    async start(controller) {
+      const send = (event: Record<string, unknown>) => {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+      };
+      let submissionId: string | null = null;
+      let heartbeat: ReturnType<typeof setInterval> | null = null;
+      try {
+        send({ type: "start" });
+
+        const submissionPromise = prisma.submission
+          .create({
+            data: {
+              userId,
+              type: "writing",
+              source: body.source || "typed",
+              rawText: body.text,
+              verifiedText: body.text,
+              status: "verified",
+            },
+          })
+          .then((submission) => {
+            submissionId = submission.id;
+            return submission;
+          });
+
+        let streamedChars = 0;
+        let lastProgressAt = 0;
+        const analysisPromise = analyzeSubmission(
+          {
+            text: body.text,
+            gradeLevel: body.gradeLevel || "S2",
+            genre: body.genre,
+            taskPrompt: body.taskPrompt,
+          },
+          {
+            onChunk: (chunk) => {
+              streamedChars += chunk.length;
+              // Throttle: at most one progress event per 250ms.
+              const now = Date.now();
+              if (now - lastProgressAt >= 250) {
+                lastProgressAt = now;
+                send({ type: "progress", chars: streamedChars });
+              }
+            },
+          },
+        );
+
+        // Some proxies buffer SSE; emit a periodic heartbeat to keep the
+        // connection alive while the LLM is still generating.
+        heartbeat = setInterval(() => {
+          controller.enqueue(encoder.encode(`: keepalive\n\n`));
+        }, 10_000);
+
+        const [submission, analysisOutcome] = await Promise.all([submissionPromise, analysisPromise]);
+
+        send({ type: "progress", chars: streamedChars, phase: "persisting" });
+        await persistAnalysis(submission, analysisOutcome, userId);
+        send({ type: "done", id: submission.id });
+      } catch (err) {
+        console.error("Submission analysis failed", err);
+        await markFailed(submissionId);
+        send({ type: "error", message: formatError(err), submissionId: submissionId || undefined });
+      } finally {
+        if (heartbeat) clearInterval(heartbeat);
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(readable, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    },
+  });
+}
+
+type AnalyzeOutcome = Awaited<ReturnType<typeof analyzeSubmission>>;
+type SubmissionRow = Awaited<ReturnType<typeof prisma.submission.create>>;
+
+async function persistAnalysis(
+  submission: SubmissionRow,
+  outcome: AnalyzeOutcome,
+  userId: string,
+) {
+  const { result, modelName, promptVersion } = outcome;
+
+  const analysis = await prisma.analysis.create({
+    data: {
+      submissionId: submission.id,
+      scores: {
+        ...result.scores,
+        word_count: result.word_count,
+        typo_count: result.typo_count,
+        typo_bonus: result.typo_bonus,
+        base_score: result.base_score,
+        dse_level: result.dse_level,
+      },
+      overallScore: result.overall_score,
+      modelName,
+      promptVersion,
+      coachFeedbackText: result.coach_feedback,
+      revisionPriorities: result.revision_priorities,
+      strengths: result.strengths,
+    },
+  });
+
+  if (result.errors.length) {
+    await prisma.errorRecord.createMany({
+      data: result.errors.map((e) => ({
+        submissionId: submission.id,
+        analysisId: analysis.id,
+        category: e.category,
+        subcategory: e.subcategory,
+        evidenceSpan: e.evidence_span,
+        charOffsetStart: e.char_offset_start,
+        charOffsetEnd: e.char_offset_end,
+        suggestion: e.suggestion,
+        exampleFix: e.example_fix ?? null,
+        severity: e.severity,
+        ocrSuspect: false,
+        confidence: e.confidence ?? 0.8,
+      })),
+    });
+  }
+
+  await prisma.submission.update({
+    where: { id: submission.id },
+    data: { status: "analyzed" },
+  });
+
+  // The typed path never marks an error as ocrSuspect, so the in-memory
+  // result.errors is the exact input the aggregator needs — saves one DB
+  // roundtrip compared to re-reading the rows we just wrote.
+  await updateWeaknessProfiles({
+    userId,
+    submissionId: submission.id,
+    submissionDate: submission.createdAt,
+    errors: result.errors.map((e) => ({
+      category: e.category,
+      subcategory: e.subcategory,
+      severity: e.severity,
+      ocrSuspect: false,
+    })),
+  });
+}
+
+async function markFailed(submissionId: string | null) {
+  if (!submissionId) return;
+  await prisma.submission
+    .update({ where: { id: submissionId }, data: { status: "failed" } })
+    .catch(() => null);
+}
+
+function formatError(err: unknown) {
+  if (err instanceof z.ZodError) return "分析結果格式暫時不完整，請稍後再試。";
+  if (err instanceof Error) return err.message;
+  return "analysis failed";
 }
 
 export async function GET() {

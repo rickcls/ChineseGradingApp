@@ -16,7 +16,7 @@ const STATUS_LABEL: Record<string, string> = {
 
 export default async function WeaknessReportPage() {
   const user = await getOrCreateUser();
-  const [profiles, recentSubmissions] = await Promise.all([
+  const [profiles, recentSubmissions] = await prisma.$transaction([
     prisma.weaknessProfile.findMany({
       where: { userId: user.id },
       orderBy: [{ status: "asc" }, { severityEwma: "desc" }],

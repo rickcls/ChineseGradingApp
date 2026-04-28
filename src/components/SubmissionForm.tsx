@@ -21,21 +21,26 @@ export function SubmissionForm() {
   const [source, setSource] = useState<SubmissionSource>("typed");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [progressChars, setProgressChars] = useState(0);
+  const [progressPhase, setProgressPhase] = useState<"reading" | "persisting" | null>(null);
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
     setSubmitting(true);
     setError(null);
+    setProgressChars(0);
+    setProgressPhase("reading");
 
     try {
       const res = await fetch("/api/submissions", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", Accept: "text/event-stream" },
         body: JSON.stringify({
           text,
           gradeLevel,
           taskPrompt: taskPrompt || undefined,
           source,
+          stream: true,
         }),
       });
 
@@ -44,11 +49,52 @@ export function SubmissionForm() {
         throw new Error(extractSubmissionErrorFromRaw(raw));
       }
 
-      const { id } = (await res.json()) as { id: string };
-      router.push(`/submissions/${id}`);
+      if (!res.body) {
+        throw new Error("伺服器沒有回傳串流內容，請稍後再試。");
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let doneId: string | null = null;
+
+      while (!doneId) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let sepIdx: number;
+        while ((sepIdx = buffer.indexOf("\n\n")) !== -1) {
+          const rawEvent = buffer.slice(0, sepIdx);
+          buffer = buffer.slice(sepIdx + 2);
+          const payload = parseSseEventPayload(rawEvent);
+          if (!payload) continue;
+          if (payload.type === "progress") {
+            if (typeof payload.chars === "number") setProgressChars(payload.chars);
+            if (payload.phase === "persisting") setProgressPhase("persisting");
+            continue;
+          }
+          if (payload.type === "done" && typeof payload.id === "string") {
+            doneId = payload.id;
+            break;
+          }
+          if (payload.type === "error") {
+            throw new Error(
+              typeof payload.message === "string" ? payload.message : "分析失敗",
+            );
+          }
+        }
+      }
+
+      if (!doneId) {
+        throw new Error("伺服器中斷了分析串流，請稍後再試。");
+      }
+
+      router.push(`/submissions/${doneId}`);
     } catch (err) {
       setError(formatNetworkAwareError(err, "提交失敗，請稍後再試。"));
       setSubmitting(false);
+      setProgressPhase(null);
     }
   }
 
@@ -200,11 +246,36 @@ export function SubmissionForm() {
           disabled={submitting || charCount < 20 || isTooLong}
           className="btn-primary min-w-[11rem]"
         >
-          {submitting ? "導師正在閱讀…" : "提交給導師"}
+          {submitting ? submitButtonLabel(progressPhase, progressChars) : "提交給導師"}
         </button>
       </div>
     </form>
   );
+}
+
+function parseSseEventPayload(rawEvent: string): Record<string, unknown> | null {
+  const dataLines: string[] = [];
+  for (const line of rawEvent.split("\n")) {
+    const trimmed = line.trimStart();
+    if (!trimmed.startsWith("data:")) continue;
+    dataLines.push(trimmed.slice(5).trim());
+  }
+  if (dataLines.length === 0) return null;
+  try {
+    const parsed = JSON.parse(dataLines.join("\n"));
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function submitButtonLabel(
+  phase: "reading" | "persisting" | null,
+  chars: number,
+) {
+  if (phase === "persisting") return "整理評語中…";
+  if (chars > 0) return `導師正在閱讀…已生成 ${chars} 字`;
+  return "導師正在閱讀…";
 }
 
 function extractSubmissionError(body: unknown) {

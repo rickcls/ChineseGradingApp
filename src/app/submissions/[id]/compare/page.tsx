@@ -19,7 +19,7 @@ export default async function SubmissionComparePage(props: { params: Promise<{ i
   const user = await getCurrentUser();
   if (!user) notFound();
 
-  const [submission, recentNotebookEntries] = await Promise.all([
+  const [submission, recentNotebookEntries] = await prisma.$transaction([
     prisma.submission.findFirst({
       where: { id: params.id, userId: user.id },
       include: {

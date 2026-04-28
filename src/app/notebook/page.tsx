@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export default async function NotebookPage() {
   const user = await getOrCreateUser();
 
-  const [entries, submissions] = await Promise.all([
+  const [entries, submissions] = await prisma.$transaction([
     prisma.notebookEntry.findMany({
       where: { userId: user.id },
       orderBy: { updatedAt: "desc" },

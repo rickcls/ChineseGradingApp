@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { generateModelText, ANALYSIS_FALLBACK_MODEL, ANALYSIS_MODEL } from "./anthropic";
+import {
+  ANALYSIS_FALLBACK_MODEL,
+  ANALYSIS_MODEL,
+  generateModelText,
+  generateModelTextStream,
+} from "./anthropic";
 import {
   DEFAULT_WRITING_RUBRIC,
   DSE_LEVEL_BANDS,
@@ -330,7 +335,12 @@ function countChineseChars(text: string): number {
   return matches ? matches.length : 0;
 }
 
-export async function analyzeSubmission(input: AnalysisInput): Promise<{
+export type AnalysisStreamHandler = (chunk: string) => void;
+
+export async function analyzeSubmission(
+  input: AnalysisInput,
+  options: { onChunk?: AnalysisStreamHandler } = {},
+): Promise<{
   result: AnalysisResult;
   modelName: string;
   promptVersion: string;
@@ -338,16 +348,22 @@ export async function analyzeSubmission(input: AnalysisInput): Promise<{
 }> {
   const rubric = DEFAULT_WRITING_RUBRIC;
   const rubricGuideMarkdown = loadRubricGuideMarkdown();
-  const rawText = await generateModelText({
+  const system = buildSystemPrompt(rubric, rubricGuideMarkdown);
+  const user = buildUserPrompt(input);
+  const baseRequest = {
     model: ANALYSIS_MODEL,
     fallbackModel: ANALYSIS_FALLBACK_MODEL,
     maxTokens: 4096,
     temperature: 0.2,
     timeoutMs: 90000,
     taskName: "analysis",
-    system: buildSystemPrompt(rubric, rubricGuideMarkdown),
-    user: buildUserPrompt(input),
-  });
+    cacheSystem: true,
+    system,
+    user,
+  };
+  const rawText = options.onChunk
+    ? await generateModelTextStream({ ...baseRequest, onChunk: options.onChunk })
+    : await generateModelText(baseRequest);
   const raw = extractJson(rawText);
   let parsed: unknown;
   try {

@@ -10,10 +10,11 @@ datasource db {
 model User {
   id           String   @id @default(cuid())
   email        String?  @unique
-  displayName  String
+  displayName  String   @map("name")
   gradeLevel   String   // e.g. "P6", "S1"..."S6"
   locale       String   @default("zh-HK")
   createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   submissions       Submission[]
   weaknessProfiles  WeaknessProfile[]
@@ -21,6 +22,8 @@ model User {
   feedbackEvents    FeedbackEvent[]
   aiModelPassages   AiModelPassage[]
   notebookEntries   NotebookEntry[]
+
+  @@map("AppUser")
 }
 
 enum SubmissionType {
