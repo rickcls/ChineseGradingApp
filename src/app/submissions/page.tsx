@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { DeleteSubmissionButton } from "@/components/DeleteSubmissionButton";
+import { EnteringLinkButton } from "@/components/EnteringLinkButton";
 import { StatePanel } from "@/components/StatePanel";
 import { SubmissionHistoryTabs } from "@/components/SubmissionHistoryTabs";
 import { getOrCreateUser } from "@/lib/auth";
@@ -103,9 +104,12 @@ export default async function SubmissionsHistoryPage() {
                               {submission.revisionOrigin.length > 0 ? <span className="pill pill-positive">已有修訂</span> : null}
                             </div>
                             <div className="mt-3 flex flex-wrap gap-2">
-                              <Link href={`/submissions/${submission.id}#workbench`} className="btn-secondary px-3 py-1.5 text-xs">
+                              <EnteringLinkButton
+                                href={`/submissions/${submission.id}#workbench`}
+                                className="btn-secondary px-3 py-1.5 text-xs"
+                              >
                                 編輯修訂
-                              </Link>
+                              </EnteringLinkButton>
                               <DeleteSubmissionButton
                                 submissionId={submission.id}
                                 className="inline-flex items-center justify-center rounded-full border border-coral/30 bg-coral/10 px-3 py-1.5 text-xs font-medium text-coral transition hover:bg-coral/15 disabled:cursor-not-allowed disabled:opacity-60"
@@ -150,12 +154,12 @@ function SubmissionHistoryCard({ submission }: { submission: SubmissionForHistor
             <div className="text-xs text-muted">{submission.analyses[0] ? "整體分數" : "等待分析"}</div>
           </div>
           <div className="flex flex-wrap gap-2 lg:justify-end">
-            <Link href={`/submissions/${submission.id}`} className="btn-primary px-4 py-2">
+            <EnteringLinkButton href={`/submissions/${submission.id}`} className="btn-primary px-4 py-2">
               查看批改
-            </Link>
-            <Link href={`/submissions/${submission.id}#workbench`} className="btn-secondary px-4 py-2">
+            </EnteringLinkButton>
+            <EnteringLinkButton href={`/submissions/${submission.id}#workbench`} className="btn-secondary px-4 py-2">
               編輯修訂
-            </Link>
+            </EnteringLinkButton>
             <DeleteSubmissionButton submissionId={submission.id} />
           </div>
         </div>

@@ -76,6 +76,10 @@ function toUserFacingError(message: string) {
     return "AI 這次整理得比較久，暫時還未完成。請稍後再試一次。";
   }
 
+  if (/fetch failed|network|ECONNRESET|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|UND_ERR/i.test(message)) {
+    return "暫時連不到 AI 參考範文服務，通常是網絡或模型供應商短暫不穩。請稍後再試一次。";
+  }
+
   if (/403|prohibited|Terms Of Service/i.test(message)) {
     return "AI 這次所用的生成通道暫時不可用，我已改用另一個較穩定的通道。請再按一次重試。";
   }

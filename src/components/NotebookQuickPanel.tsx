@@ -181,11 +181,25 @@ export function NotebookQuickPanel({
             className="field-input min-h-[17rem] resize-y leading-7"
             placeholder={[
               "例如：",
-              "【評分準則】內容",
-              "【原文例子】……",
-              "【可記住的方法】先寫事件，再補一層心情。",
-              "【示範改寫】……",
-              "【下次檢查】……",
+              "【學習重點】",
+              "準則：內容",
+              "一句話提醒：先把事件寫清楚，再補一層心情或原因。",
+              "",
+              "【原文觀察】",
+              "原文片段：……",
+              "可以更清楚的地方：……",
+              "",
+              "【下次做法】",
+              "1. ……",
+              "2. ……",
+              "",
+              "【示範句】",
+              "原句：……",
+              "可以改成：……",
+              "",
+              "【檢查清單】",
+              "□ ……",
+              "□ ……",
             ].join("\n")}
           />
         </label>
@@ -209,7 +223,7 @@ export function NotebookQuickPanel({
               disabled={generating || submitting}
               className="btn-secondary"
             >
-              {generating ? "生成中…" : focusTag ? `AI 生成${focusTag}筆記` : "AI 生成筆記"}
+              {generating ? "整理中…" : focusTag ? `AI 整理${focusTag}筆記` : "AI 整理參考筆記"}
             </button>
           ) : null}
           <button

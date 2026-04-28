@@ -75,7 +75,7 @@ function contentFromOpenRouter(raw: unknown): string {
 
 function isRetryableModelError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
-  return /(timed out|request failed \((408|409|425|429|500|502|503|504|524)\)|returned empty content)/i.test(message);
+  return /(timed out|fetch failed|network|ECONNRESET|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|UND_ERR|request failed \((408|409|425|429|500|502|503|504|524)\)|returned empty content)/i.test(message);
 }
 
 function logModelEvent(taskName: string, model: string, startedAt: number, outcome: "ok" | "retry" | "fail") {
@@ -109,9 +109,15 @@ async function withModelFallback<T>(
     logModelEvent(input.taskName || "text", primaryModel, startedAt, "ok");
     return result;
   } catch (primaryError) {
-    logModelEvent(input.taskName || "text", primaryModel, startedAt, fallbackModel ? "retry" : "fail");
+    const shouldRetry = Boolean(
+      fallbackModel &&
+        fallbackModel !== primaryModel &&
+        isRetryableModelError(primaryError),
+    );
 
-    if (!fallbackModel || fallbackModel === primaryModel || !isRetryableModelError(primaryError)) {
+    logModelEvent(input.taskName || "text", primaryModel, startedAt, shouldRetry ? "retry" : "fail");
+
+    if (!shouldRetry || !fallbackModel) {
       throw primaryError;
     }
 

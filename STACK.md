@@ -51,7 +51,8 @@ Do not hard-code secrets. Expected environment variables include:
 - `OCR_FALLBACK_MODEL`: optional OCR fallback override
 - `MODEL_PASSAGE_MODEL`: optional reference passage model override
 - `MODEL_PASSAGE_FALLBACK_MODEL`: optional reference passage fallback override
-- `ANALYSIS_OPENROUTER_TIMEOUT_MS`, `OCR_OPENROUTER_TIMEOUT_MS`, `MODEL_PASSAGE_TIMEOUT_MS`, `MODEL_PASSAGE_REPAIR_TIMEOUT_MS`: optional timeout tuning
+- `NOTEBOOK_NOTE_FALLBACK_MODEL`: optional fallback for AI-generated notebook notes
+- `ANALYSIS_OPENROUTER_TIMEOUT_MS`, `OCR_OPENROUTER_TIMEOUT_MS`, `MODEL_PASSAGE_TIMEOUT_MS`, `MODEL_PASSAGE_REPAIR_TIMEOUT_MS`, `NOTEBOOK_NOTE_TIMEOUT_MS`: optional timeout tuning
 
 ## Authentication Model
 
@@ -218,7 +219,7 @@ Important UI:
 
 - `src/components/ModelPassagePanel.tsx`
 
-## Notebook
+## AI Generated Notes and Notebook
 
 Notebook entries let students save phrases, lessons, and manual notes.
 
@@ -226,6 +227,7 @@ Primary routes:
 
 - `src/app/api/notebook/route.ts`
 - `src/app/api/notebook/[entryId]/route.ts`
+- `src/app/api/submissions/[id]/notebook-note/route.ts`
 
 Notebook supports:
 
@@ -233,12 +235,28 @@ Notebook supports:
 - Filter by submission, tag, or text search
 - Link entries to submissions and AI model passages
 - Save source before/after text when useful
+- Generate a structured AI reference note from a submission, latest analysis, strengths, and revision priorities
+- Optionally target one marking focus: `內容`, `表達`, `結構`, or `標點`
+
+AI note generation:
+
+- Implemented in `src/lib/notebookNote.ts`
+- Uses `COACH_MODEL` with `NOTEBOOK_NOTE_FALLBACK_MODEL`
+- Validates model output with Zod before returning a draft
+- Returns a draft only; the student still saves it through the normal notebook create route
+- Current note template is intentionally organized as `【學習重點】`, `【原文觀察】`, `【下次做法】`, `【示範句】`, and `【檢查清單】`
+
+Feedback page placement:
+
+- `/submissions/[id]` has separate top-level tabs for `AI 參考範文` and `AI 參考筆記`
+- The notes tab uses `NotebookQuickPanel` and calls the notebook-note API to fill the editable draft
 
 Important files:
 
 - `src/app/notebook/page.tsx`
 - `src/components/NotebookWorkspace.tsx`
 - `src/components/NotebookQuickPanel.tsx`
+- `src/lib/notebookNote.ts`
 - `src/lib/notebook.ts`
 
 ## Styling and UX Conventions
@@ -264,7 +282,8 @@ Important files:
 - Weakness profile aggregation and ability map
 - Revision session creation and comparison
 - AI reference passage generation with teaching highlights
-- Notebook for saving phrases, lessons, and manual entries
+- AI reference note generation from feedback and revision priorities
+- Notebook for saving phrases, lessons, generated notes, and manual entries
 - Prisma schema for all current app data
 - Seed script for initial rubric/tasks
 
@@ -281,7 +300,7 @@ Important files:
 
 ## Safe Areas for Future Changes
 
-- Prompt tuning: `src/lib/analysis.ts`, `src/lib/modelPassage.ts`, `src/lib/ocr.ts`
+- Prompt tuning: `src/lib/analysis.ts`, `src/lib/modelPassage.ts`, `src/lib/notebookNote.ts`, `src/lib/ocr.ts`
 - Rubric changes: `src/lib/rubric.ts`, `src/lib/rubricGuide.ts`, `dse-chinese-writing-rubric.md`, `DSE中文寫作評分.md`
 - Weakness thresholds: `src/lib/weakness.ts`
 - Submission UX: `src/components/SubmissionForm.tsx`, `src/components/CameraCaptureFlow.tsx`

@@ -109,6 +109,7 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
     { id: "annotations", label: "文中批註" },
     { id: "workbench", label: "訂正工作台" },
     { id: "model-passage", label: "AI 參考範文" },
+    { id: "notebook-note", label: "AI 參考筆記" },
     { id: "error-categories", label: "分類整理" },
   ];
 
@@ -364,12 +365,21 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
             initialPassage={submission.aiModelPassage ? serializeModelPassage(submission.aiModelPassage) : null}
             context="workbench"
           />
+        </section>
 
+        <section id="notebook-note" data-section-id="notebook-note" className="space-y-4 scroll-mt-32">
+          <div className="space-y-2">
+            <p className="section-kicker">AI 參考筆記</p>
+            <h2 className="text-2xl">把這次最值得帶走的一點整理成筆記</h2>
+            <p className="max-w-2xl text-sm leading-7 text-ink/75">
+              先選一個評分準則，或者讓 AI 從回饋中挑最有價值的一項。筆記會整理成原文觀察、下次做法、示範句和檢查清單，方便之後重用。
+            </p>
+          </div>
           <NotebookQuickPanel
             entries={recentNotebookEntries.map(serializeNotebookEntry)}
             submissionId={submission.id}
             title="AI 參考筆記"
-            intro="看範文時，把真正想學走的一句句式、一次過渡寫法，或一條提醒直接記下來，下次改文時會更容易用得上。"
+            intro="把真正想學走的一句句式、一次過渡寫法，或一條提醒整理成可保存的筆記，下次改文時會更容易用得上。"
           />
         </section>
 
