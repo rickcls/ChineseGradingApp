@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { UserButton, SignInButton, useAuth } from "@clerk/nextjs";
 
 const NAV_ITEMS = [
   { href: "/", label: "主頁" },
@@ -13,6 +14,7 @@ const NAV_ITEMS = [
 
 export function Header() {
   const pathname = usePathname();
+  const { isSignedIn } = useAuth();
 
   return (
     <header className="sticky top-0 z-40 border-b border-border/60 bg-paper/80 backdrop-blur-xl">
@@ -40,33 +42,45 @@ export function Header() {
             </div>
           </Link>
 
-          <nav className="flex flex-wrap gap-2 text-sm">
-            {NAV_ITEMS.map((item) => {
-              const active =
-                item.href === "/"
-                  ? pathname === "/"
-                  : item.exact
-                    ? pathname === item.href
-                    : item.href === "/submissions"
-                      ? pathname === "/submissions" || (pathname.startsWith("/submissions/") && !pathname.startsWith("/submissions/new"))
-                      : pathname === item.href || pathname.startsWith(`${item.href}/`);
+          <div className="flex items-center gap-3">
+            <nav className="flex flex-wrap gap-2 text-sm">
+              {NAV_ITEMS.map((item) => {
+                const active =
+                  item.href === "/"
+                    ? pathname === "/"
+                    : item.exact
+                      ? pathname === item.href
+                      : item.href === "/submissions"
+                        ? pathname === "/submissions" || (pathname.startsWith("/submissions/") && !pathname.startsWith("/submissions/new"))
+                        : pathname === item.href || pathname.startsWith(`${item.href}/`);
 
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={[
-                    "rounded-full px-4 py-2 transition",
-                    active
-                      ? "bg-accent text-white shadow-soft"
-                      : "border border-border/70 bg-white/80 text-ink/75 hover:border-accent/30 hover:text-accent",
-                  ].join(" ")}
-                >
-                  {item.label}
-                </Link>
-              );
-            })}
-          </nav>
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={[
+                      "rounded-full px-4 py-2 transition",
+                      active
+                        ? "bg-accent text-white shadow-soft"
+                        : "border border-border/70 bg-white/80 text-ink/75 hover:border-accent/30 hover:text-accent",
+                    ].join(" ")}
+                  >
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </nav>
+
+            {isSignedIn ? (
+              <UserButton />
+            ) : (
+              <SignInButton mode="redirect">
+                <button className="rounded-full border border-border/70 bg-white/80 px-4 py-2 text-sm text-ink/75 transition hover:border-accent/30 hover:text-accent">
+                  登入
+                </button>
+              </SignInButton>
+            )}
+          </div>
         </div>
       </div>
     </header>

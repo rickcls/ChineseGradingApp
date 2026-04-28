@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
+    "@clerk/nextjs": "^7.2.7",
     "@prisma/client": "^5.22.0",
     "next": "^16.2.4",
     "pdfjs-dist": "^5.6.205",
