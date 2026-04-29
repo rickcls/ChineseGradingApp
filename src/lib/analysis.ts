@@ -22,6 +22,7 @@ import { loadRubricGuideMarkdown } from "./rubricGuide";
 import { TAXONOMY, taxonomyAsMarkdown, validCategory } from "./taxonomy";
 
 export const PROMPT_VERSION = "v5-2026-04-enriched-revision-suggestions";
+const ANALYSIS_TIMEOUT_MS = parsePositiveInt(process.env.ANALYSIS_OPENROUTER_TIMEOUT_MS, 90000);
 
 const ErrorItem = z.object({
   category: z.string(),
@@ -43,6 +44,11 @@ const RevisionPrioritySchema = z.object({
   example_before: z.string().optional(),
   example_after: z.string().optional(),
 });
+
+function parsePositiveInt(raw: string | undefined, fallback: number) {
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : fallback;
+}
 
 export type RevisionPriority = z.infer<typeof RevisionPrioritySchema>;
 
@@ -355,7 +361,7 @@ export async function analyzeSubmission(
     fallbackModel: ANALYSIS_FALLBACK_MODEL,
     maxTokens: 4096,
     temperature: 0.2,
-    timeoutMs: 90000,
+    timeoutMs: ANALYSIS_TIMEOUT_MS,
     taskName: "analysis",
     cacheSystem: true,
     system,
