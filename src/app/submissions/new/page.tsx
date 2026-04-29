@@ -1,8 +1,12 @@
 import { SubmissionForm } from "@/components/SubmissionForm";
+import { StatePanel } from "@/components/StatePanel";
+import { requireRole } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
-export default function NewSubmissionPage() {
+export default async function NewSubmissionPage() {
+  const { appUser } = await requireRole(["student"]);
+
   return (
     <div className="space-y-6">
       <section className="paper-panel-strong p-6 sm:p-7">
@@ -30,7 +34,17 @@ export default function NewSubmissionPage() {
           </div>
         </div>
       </section>
-      <SubmissionForm />
+      {appUser.credits <= 0 ? (
+        <StatePanel
+          state="empty"
+          title="目前沒有可用批改點數"
+          description="每次提交文章會使用 1 點。請聯絡老師或管理員為你增加點數後再提交。"
+          actionHref="/student/dashboard"
+          actionLabel="返回學生主頁"
+        />
+      ) : (
+        <SubmissionForm currentCredits={appUser.credits} />
+      )}
     </div>
   );
 }

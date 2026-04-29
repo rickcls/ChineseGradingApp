@@ -170,7 +170,7 @@ export function NotebookQuickPanel({
               placeholder="例如：過渡句，情感描寫"
             />
           </label>
-        </div>
+        </div>  
 
         <label className="block">
           <span className="field-label">這次想記住甚麼？</span>

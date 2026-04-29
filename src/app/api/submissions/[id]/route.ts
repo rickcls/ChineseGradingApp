@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { requireRole } from "@/lib/auth";
 import { removeSubmissionFromWeaknessProfiles } from "@/lib/weakness";
 
 export const runtime = "nodejs";
 
 export async function GET(_req: Request, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
+  const { appUser: user } = await requireRole(["student"]);
 
   const submission = await prisma.submission.findFirst({
     where: { id: params.id, userId: user.id },
@@ -23,8 +22,7 @@ export async function GET(_req: Request, props: { params: Promise<{ id: string }
 
 export async function DELETE(_req: Request, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
+  const { appUser: user } = await requireRole(["student"]);
 
   const submission = await prisma.submission.findFirst({
     where: { id: params.id, userId: user.id },

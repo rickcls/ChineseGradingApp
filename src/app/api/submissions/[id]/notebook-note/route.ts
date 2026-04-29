@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { requireRole } from "@/lib/auth";
 import { generateNotebookNoteDraft } from "@/lib/notebookNote";
 import { normalizeFocusTag } from "@/lib/notebook";
 import { normalizeRevisionPriorities } from "@/lib/revisionPriority";
@@ -11,8 +11,7 @@ export const maxDuration = 120;
 
 export async function POST(req: Request, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
+  const { appUser: user } = await requireRole(["student"]);
   const body = await req.json().catch(() => ({}));
   const requestedFocusTag = normalizeFocusTag(
     typeof body?.focusTag === "string" ? body.focusTag : undefined,

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { requireRole } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -12,8 +12,7 @@ const Body = z.object({
 
 export async function POST(req: Request, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
+  const { appUser: user } = await requireRole(["student"]);
 
   const json = await req.json().catch(() => null);
   const parsed = Body.safeParse(json);

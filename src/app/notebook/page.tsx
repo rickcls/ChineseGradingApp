@@ -1,4 +1,4 @@
-import { getOrCreateUser } from "@/lib/auth";
+import { requireRole } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { previewSubmission, serializeNotebookEntry } from "@/lib/notebook";
 import { NotebookWorkspace } from "@/components/NotebookWorkspace";
@@ -6,7 +6,7 @@ import { NotebookWorkspace } from "@/components/NotebookWorkspace";
 export const dynamic = "force-dynamic";
 
 export default async function NotebookPage() {
-  const user = await getOrCreateUser();
+  const { appUser: user } = await requireRole(["student"]);
 
   const [entries, submissions] = await prisma.$transaction([
     prisma.notebookEntry.findMany({

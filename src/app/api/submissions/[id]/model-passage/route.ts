@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { requireRole } from "@/lib/auth";
 import { generateModelPassage, serializeModelPassage } from "@/lib/modelPassage";
 import { normalizeRevisionPriorities } from "@/lib/revisionPriority";
 
@@ -10,8 +10,7 @@ export const maxDuration = 300;
 
 export async function POST(_req: Request, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
+  const { appUser: user } = await requireRole(["student"]);
 
   const submission = await prisma.submission.findFirst({
     where: { id: params.id, userId: user.id },

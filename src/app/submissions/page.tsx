@@ -3,7 +3,7 @@ import { DeleteSubmissionButton } from "@/components/DeleteSubmissionButton";
 import { EnteringLinkButton } from "@/components/EnteringLinkButton";
 import { StatePanel } from "@/components/StatePanel";
 import { SubmissionHistoryTabs } from "@/components/SubmissionHistoryTabs";
-import { getOrCreateUser } from "@/lib/auth";
+import { requireRole } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +19,7 @@ type SubmissionForHistory = {
 };
 
 export default async function SubmissionsHistoryPage() {
-  const user = await getOrCreateUser();
+  const { appUser: user } = await requireRole(["student"]);
   const submissions = await prisma.submission.findMany({
     where: { userId: user.id },
     orderBy: { createdAt: "desc" },

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { requireRole } from "@/lib/auth";
 import {
   NotebookUpdateSchema,
   normalizeFocusTag,
@@ -13,8 +13,7 @@ export const dynamic = "force-dynamic";
 
 export async function PATCH(req: Request, props: { params: Promise<{ entryId: string }> }) {
   const params = await props.params;
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
+  const { appUser: user } = await requireRole(["student"]);
 
   const existing = await prisma.notebookEntry.findFirst({
     where: { id: params.entryId, userId: user.id },
@@ -62,8 +61,7 @@ export async function PATCH(req: Request, props: { params: Promise<{ entryId: st
 
 export async function DELETE(_req: Request, props: { params: Promise<{ entryId: string }> }) {
   const params = await props.params;
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
+  const { appUser: user } = await requireRole(["student"]);
 
   const existing = await prisma.notebookEntry.findFirst({
     where: { id: params.entryId, userId: user.id },

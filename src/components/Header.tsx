@@ -2,19 +2,38 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { UserButton, SignInButton, useAuth } from "@clerk/nextjs";
+import { UserButton, SignInButton, useAuth, useUser } from "@clerk/nextjs";
 
-const NAV_ITEMS = [
-  { href: "/", label: "主頁" },
+type NavItem = {
+  href: string;
+  label: string;
+  exact?: boolean;
+};
+
+const STUDENT_NAV_ITEMS: NavItem[] = [
+  { href: "/dashboard", label: "主頁" },
   { href: "/submissions/new", label: "新作提交", exact: true },
   { href: "/submissions", label: "作品紀錄" },
   { href: "/notebook", label: "學習筆記" },
   { href: "/weaknesses", label: "能力地圖" },
 ];
 
+const TEACHER_NAV_ITEMS: NavItem[] = [
+  { href: "/dashboard", label: "主頁" },
+  { href: "/teacher/dashboard", label: "學生作品" },
+];
+
+const ADMIN_NAV_ITEMS: NavItem[] = [
+  { href: "/dashboard", label: "主頁" },
+  { href: "/admin/dashboard", label: "用戶管理" },
+];
+
 export function Header() {
   const pathname = usePathname();
-  const { isSignedIn } = useAuth();
+  const { isSignedIn, isLoaded } = useAuth();
+  const { user } = useUser();
+  const role = roleFromMetadata(user?.publicMetadata);
+  const navItems = role === "admin" ? ADMIN_NAV_ITEMS : role === "teacher" ? TEACHER_NAV_ITEMS : STUDENT_NAV_ITEMS;
 
   return (
     <header className="sticky top-0 z-40 border-b border-border/60 bg-paper/80 backdrop-blur-xl">
@@ -44,10 +63,10 @@ export function Header() {
 
           <div className="flex items-center gap-3">
             <nav className="flex flex-wrap gap-2 text-sm">
-              {NAV_ITEMS.map((item) => {
+              {navItems.map((item) => {
                 const active =
-                  item.href === "/"
-                    ? pathname === "/"
+                  item.href === "/dashboard"
+                    ? pathname === "/dashboard" || pathname.endsWith("/dashboard")
                     : item.exact
                       ? pathname === item.href
                       : item.href === "/submissions"
@@ -71,7 +90,7 @@ export function Header() {
               })}
             </nav>
 
-            {isSignedIn ? (
+            {!isLoaded ? null : isSignedIn ? (
               <UserButton />
             ) : (
               <SignInButton mode="redirect">
@@ -85,4 +104,10 @@ export function Header() {
       </div>
     </header>
   );
+}
+
+function roleFromMetadata(metadata: unknown) {
+  if (!metadata || typeof metadata !== "object") return "student";
+  const role = (metadata as Record<string, unknown>).role;
+  return role === "admin" || role === "teacher" || role === "student" ? role : "student";
 }

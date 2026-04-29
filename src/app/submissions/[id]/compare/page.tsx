@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { requireRole } from "@/lib/auth";
 import { RevisionComparison } from "@/components/RevisionComparison";
 import { StatePanel } from "@/components/StatePanel";
 import { serializeModelPassage } from "@/lib/modelPassage";
@@ -16,8 +16,7 @@ export const dynamic = "force-dynamic";
 
 export default async function SubmissionComparePage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const user = await getCurrentUser();
-  if (!user) notFound();
+  const { appUser: user } = await requireRole(["student"]);
 
   const [submission, recentNotebookEntries] = await prisma.$transaction([
     prisma.submission.findFirst({

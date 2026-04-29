@@ -9,3 +9,9 @@ export const prisma =
   });
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+
+if (process.env.NODE_ENV === "development" && !("appUser" in prisma)) {
+  throw new Error(
+    "Prisma Client is stale and does not include AppUser. Run `npx prisma generate`, stop `npm run dev`, then start it again.",
+  );
+}

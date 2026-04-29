@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { requireRole } from "@/lib/auth";
 import { AnnotatedText } from "@/components/AnnotatedText";
 import { CoachCard } from "@/components/CoachCard";
 import { ModelPassagePanel } from "@/components/ModelPassagePanel";
@@ -26,8 +26,7 @@ export const dynamic = "force-dynamic";
 
 export default async function SubmissionDetailPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const user = await getCurrentUser();
-  if (!user) notFound();
+  const { appUser: user } = await requireRole(["student"]);
 
   const [submission, recentNotebookEntries] = await prisma.$transaction([
     prisma.submission.findFirst({

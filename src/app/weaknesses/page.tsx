@@ -2,7 +2,7 @@ import { AbilityRadar } from "@/components/AbilityRadar";
 import { CoachCard } from "@/components/CoachCard";
 import { StatePanel } from "@/components/StatePanel";
 import { prisma } from "@/lib/db";
-import { getOrCreateUser } from "@/lib/auth";
+import { requireRole } from "@/lib/auth";
 import { DEFAULT_WRITING_RUBRIC } from "@/lib/rubric";
 
 export const dynamic = "force-dynamic";
@@ -15,8 +15,8 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export default async function WeaknessReportPage() {
-  const user = await getOrCreateUser();
-  const [profiles, recentSubmissions] = await prisma.$transaction([
+  const { appUser: user } = await requireRole(["student"]);
+  const [profiles, recentSubmissions] = await Promise.all([
     prisma.weaknessProfile.findMany({
       where: { userId: user.id },
       orderBy: [{ status: "asc" }, { severityEwma: "desc" }],

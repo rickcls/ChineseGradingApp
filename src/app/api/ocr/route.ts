@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { requireRole } from "@/lib/auth";
 import { extractTextFromImages } from "@/lib/ocr";
 
 export const runtime = "nodejs";
@@ -12,6 +13,8 @@ const Body = z.object({
 });
 
 export async function POST(req: Request) {
+  await requireRole(["student"]);
+
   const json = await req.json().catch(() => null);
   const parsed = Body.safeParse(json);
 

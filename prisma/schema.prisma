@@ -7,14 +7,19 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id           String   @id @default(cuid())
-  email        String?  @unique
-  displayName  String   @map("name")
-  gradeLevel   String   // e.g. "P6", "S1"..."S6"
-  locale       String   @default("zh-HK")
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+model AppUser {
+  id             String    @id @default(cuid())
+  clerkUserId    String?   @unique
+  email          String?   @unique
+  name           String
+  role           UserRole  @default(student)
+  credits        Int       @default(0)
+  plan           String    @default("free")
+  paymentStatus  String    @default("free")
+  gradeLevel     String    @default("S2") // e.g. "P6", "S1"..."S6"
+  locale         String    @default("zh-HK")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   submissions       Submission[]
   weaknessProfiles  WeaknessProfile[]
@@ -24,6 +29,47 @@ model User {
   notebookEntries   NotebookEntry[]
 
   @@map("AppUser")
+}
+
+enum UserRole {
+  student
+  teacher
+  admin
+}
+
+model CreditTransaction {
+  id                    String   @id @default(cuid())
+  clerkUserId            String
+  amount                Int
+  reason                String
+  createdByClerkUserId  String?
+  createdAt             DateTime @default(now())
+
+  @@index([clerkUserId])
+  @@index([createdAt])
+}
+
+model Class {
+  id                  String   @id @default(cuid())
+  name                String
+  teacherClerkUserId  String
+  createdAt           DateTime @default(now())
+
+  studentClasses  StudentClass[]
+
+  @@index([teacherClerkUserId])
+}
+
+model StudentClass {
+  id                  String @id @default(cuid())
+  studentClerkUserId  String
+  classId             String
+
+  class  Class @relation(fields: [classId], references: [id], onDelete: Cascade)
+
+  @@unique([studentClerkUserId, classId])
+  @@index([studentClerkUserId])
+  @@index([classId])
 }
 
 enum SubmissionType {
@@ -59,7 +105,7 @@ model Submission {
   taskId                String?
   createdAt             DateTime           @default(now())
 
-  user             User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user             AppUser              @relation(fields: [userId], references: [id], onDelete: Cascade)
   task             WritingTask?         @relation(fields: [taskId], references: [id])
   analyses         Analysis[]
   errors           ErrorRecord[]
@@ -132,7 +178,7 @@ model WeaknessProfile {
   status                WeaknessStatus  @default(watching)
   recentCounts          Json            // rolling window: [{submissionId, count, date}]
 
-  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user  AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, category, subcategory])
   @@index([userId, status])
@@ -147,7 +193,7 @@ model RevisionSession {
   improvementDelta       Json?
   createdAt              DateTime @default(now())
 
-  user                User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                AppUser     @relation(fields: [userId], references: [id], onDelete: Cascade)
   originalSubmission  Submission  @relation("OriginalSubmission", fields: [originalSubmissionId], references: [id], onDelete: Cascade)
 }
 
@@ -162,7 +208,7 @@ model AiModelPassage {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user            AppUser         @relation(fields: [userId], references: [id], onDelete: Cascade)
   submission      Submission      @relation(fields: [submissionId], references: [id], onDelete: Cascade)
   notebookEntries NotebookEntry[]
 
@@ -190,7 +236,7 @@ model NotebookEntry {
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
-  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          AppUser         @relation(fields: [userId], references: [id], onDelete: Cascade)
   submission    Submission?     @relation(fields: [submissionId], references: [id], onDelete: SetNull)
   sourcePassage AiModelPassage? @relation(fields: [sourcePassageId], references: [id], onDelete: SetNull)
 
@@ -233,5 +279,5 @@ model FeedbackEvent {
   note        String?
   createdAt   DateTime @default(now())
 
-  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user  AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

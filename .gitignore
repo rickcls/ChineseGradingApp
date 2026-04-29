@@ -7,7 +7,6 @@ node_modules
 *.log
 *.tsbuildinfo
 .DS_Store
-prisma/migrations
 
 # clerk configuration (can include secrets)
 /.clerk/

@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { getOrCreateUser } from "@/lib/auth";
+import { requireRole } from "@/lib/auth";
 import { analyzeSubmission } from "@/lib/analysis";
+import {
+  deductCreditForSubmission,
+  InsufficientCreditsError,
+  refundCreditForSubmission,
+} from "@/lib/credits";
 import { updateWeaknessProfiles } from "@/lib/weakness";
 
 export const runtime = "nodejs";
@@ -18,59 +23,77 @@ const Body = z.object({
   stream: z.boolean().optional(),
 });
 
+type Body = z.infer<typeof Body>;
+
 export async function POST(req: Request) {
+  const { appUser: user } = await requireRole(["student"]);
+  
   const json = await req.json().catch(() => null);
   const parsed = Body.safeParse(json);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const user = await getOrCreateUser({ gradeLevel: parsed.data.gradeLevel });
   if (parsed.data.gradeLevel && parsed.data.gradeLevel !== user.gradeLevel) {
-    await prisma.user.update({ where: { id: user.id }, data: { gradeLevel: parsed.data.gradeLevel } });
+    await prisma.appUser.update({ where: { id: user.id }, data: { gradeLevel: parsed.data.gradeLevel } });
   }
 
   if (parsed.data.stream) {
-    return streamingResponse(parsed.data, user.id);
+    return streamingResponse(parsed.data, user.id, user.clerkUserId);
   }
 
-  return jsonResponse(parsed.data, user.id);
+  return jsonResponse(parsed.data, user.id, user.clerkUserId);
 }
 
-type Body = z.infer<typeof Body>;
-
-async function jsonResponse(body: Body, userId: string) {
+async function jsonResponse(body: Body, userId: string, clerkUserId: string) {
   let submissionId: string | null = null;
+  let chargedClerkUserId: string | null = null;
+
   try {
-    const submissionPromise = prisma.submission
-      .create({
-        data: {
-          userId,
-          type: "writing",
-          source: body.source || "typed",
-          rawText: body.text,
-          verifiedText: body.text,
-          status: "verified",
-        },
-      })
-      .then((submission) => {
-        submissionId = submission.id;
-        return submission;
-      });
-    const analysisPromise = analyzeSubmission({
+    const user = await deductCreditForSubmission();
+    chargedClerkUserId = user.clerkUserId;
+
+    const submission = await prisma.submission.create({
+      data: {
+        userId: user.id,
+        type: "writing",
+        source: body.source || "typed",
+        rawText: body.text,
+        verifiedText: body.text,
+        status: "verified",
+      },
+    });
+    submissionId = submission.id;
+
+    const analysisOutcome = await analyzeSubmission({
       text: body.text,
-      gradeLevel: body.gradeLevel || "S2",
+      gradeLevel: body.gradeLevel || user.gradeLevel,
       genre: body.genre,
       taskPrompt: body.taskPrompt,
     });
-
-    const [submission, analysisOutcome] = await Promise.all([submissionPromise, analysisPromise]);
 
     await persistAnalysis(submission, analysisOutcome, userId);
     return NextResponse.json({ id: submission.id }, { status: 201 });
   } catch (err) {
     console.error("Submission analysis failed", err);
-    await markFailed(submissionId);
+    
+    if (submissionId) {
+      await prisma.submission.update({
+        where: { id: submissionId },
+        data: { status: "failed" },
+      }).catch(() => null);
+    }
+
+    if (chargedClerkUserId && !(err instanceof InsufficientCreditsError)) {
+      await refundCreditForSubmission(chargedClerkUserId, "essay_submission_refund").catch((refundError) => {
+        console.error("Credit refund failed", refundError);
+      });
+    }
+
+    if (err instanceof InsufficientCreditsError) {
+      return NextResponse.json({ error: err.message }, { status: 402 });
+    }
+
     return NextResponse.json(
       { error: formatError(err), submissionId: submissionId || undefined },
       { status: 500 },
@@ -78,8 +101,10 @@ async function jsonResponse(body: Body, userId: string) {
   }
 }
 
-function streamingResponse(body: Body, userId: string) {
+async function streamingResponse(body: Body, userId: string, clerkUserId: string) {
   const encoder = new TextEncoder();
+  let chargedClerkUserId: string | null = null;
+
   const readable = new ReadableStream({
     async start(controller) {
       const send = (event: Record<string, unknown>) => {
@@ -87,24 +112,26 @@ function streamingResponse(body: Body, userId: string) {
       };
       let submissionId: string | null = null;
       let heartbeat: ReturnType<typeof setInterval> | null = null;
+
       try {
         send({ type: "start" });
 
-        const submissionPromise = prisma.submission
-          .create({
-            data: {
-              userId,
-              type: "writing",
-              source: body.source || "typed",
-              rawText: body.text,
-              verifiedText: body.text,
-              status: "verified",
-            },
-          })
-          .then((submission) => {
-            submissionId = submission.id;
-            return submission;
-          });
+        const user = await deductCreditForSubmission();
+        chargedClerkUserId = user.clerkUserId;
+
+        const submissionPromise = prisma.submission.create({
+          data: {
+            userId,
+            type: "writing",
+            source: body.source || "typed",
+            rawText: body.text,
+            verifiedText: body.text,
+            status: "verified",
+          },
+        }).then((s) => {
+          submissionId = s.id;
+          return s;
+        });
 
         let streamedChars = 0;
         let lastProgressAt = 0;
@@ -118,7 +145,6 @@ function streamingResponse(body: Body, userId: string) {
           {
             onChunk: (chunk) => {
               streamedChars += chunk.length;
-              // Throttle: at most one progress event per 250ms.
               const now = Date.now();
               if (now - lastProgressAt >= 250) {
                 lastProgressAt = now;
@@ -128,8 +154,6 @@ function streamingResponse(body: Body, userId: string) {
           },
         );
 
-        // Some proxies buffer SSE; emit a periodic heartbeat to keep the
-        // connection alive while the LLM is still generating.
         heartbeat = setInterval(() => {
           controller.enqueue(encoder.encode(`: keepalive\n\n`));
         }, 10_000);
@@ -141,8 +165,20 @@ function streamingResponse(body: Body, userId: string) {
         send({ type: "done", id: submission.id });
       } catch (err) {
         console.error("Submission analysis failed", err);
-        await markFailed(submissionId);
-        send({ type: "error", message: formatError(err), submissionId: submissionId || undefined });
+        
+        if (submissionId) {
+          await prisma.submission.update({
+            where: { id: submissionId },
+            data: { status: "failed" },
+          }).catch(() => null);
+        }
+
+        if (chargedClerkUserId && !(err instanceof InsufficientCreditsError)) {
+          await refundCreditForSubmission(chargedClerkUserId, "essay_submission_refund").catch(() => null);
+        }
+
+        const message = err instanceof InsufficientCreditsError ? err.message : formatError(err);
+        send({ type: "error", message, submissionId: submissionId || undefined });
       } finally {
         if (heartbeat) clearInterval(heartbeat);
         controller.close();
@@ -215,9 +251,6 @@ async function persistAnalysis(
     data: { status: "analyzed" },
   });
 
-  // The typed path never marks an error as ocrSuspect, so the in-memory
-  // result.errors is the exact input the aggregator needs — saves one DB
-  // roundtrip compared to re-reading the rows we just wrote.
   await updateWeaknessProfiles({
     userId,
     submissionId: submission.id,
@@ -231,13 +264,6 @@ async function persistAnalysis(
   });
 }
 
-async function markFailed(submissionId: string | null) {
-  if (!submissionId) return;
-  await prisma.submission
-    .update({ where: { id: submissionId }, data: { status: "failed" } })
-    .catch(() => null);
-}
-
 function formatError(err: unknown) {
   if (err instanceof z.ZodError) return "分析結果格式暫時不完整，請稍後再試。";
   if (err instanceof Error) return err.message;
@@ -245,7 +271,7 @@ function formatError(err: unknown) {
 }
 
 export async function GET() {
-  const user = await getOrCreateUser();
+  const { appUser: user } = await requireRole(["student"]);
   const subs = await prisma.submission.findMany({
     where: { userId: user.id },
     orderBy: { createdAt: "desc" },
