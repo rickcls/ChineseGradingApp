@@ -13,7 +13,13 @@ const MODES = [
 
 type SubmissionSource = (typeof MODES)[number]["value"];
 
-export function SubmissionForm({ currentCredits }: { currentCredits?: number }) {
+export function SubmissionForm({
+  currentCredits,
+  creditsUnlimited = false,
+}: {
+  currentCredits?: number;
+  creditsUnlimited?: boolean;
+}) {
   const router = useRouter();
   const [text, setText] = useState("");
   const [gradeLevel, setGradeLevel] = useState("S2");
@@ -100,7 +106,7 @@ export function SubmissionForm({ currentCredits }: { currentCredits?: number }) 
 
   const charCount = Array.from(text).length;
   const isTooLong = charCount > 8000;
-  const hasNoCredits = typeof currentCredits === "number" && currentCredits <= 0;
+  const hasNoCredits = !creditsUnlimited && typeof currentCredits === "number" && currentCredits <= 0;
 
   return (
     <form onSubmit={onSubmit} className="space-y-6">
@@ -242,7 +248,12 @@ export function SubmissionForm({ currentCredits }: { currentCredits?: number }) 
           <p className="text-sm text-ink/80">導師通常需要 20–60 秒閱讀和整理回饋。</p>
           <p className="text-xs text-muted">
             如果這篇文章還不完整也沒關係，先交一版，我們再慢慢修。當前字數：{charCount}
-            {typeof currentCredits === "number" ? `；可用點數：${currentCredits}` : ""}。
+            {creditsUnlimited
+              ? "；可用點數：無限"
+              : typeof currentCredits === "number"
+                ? `；可用點數：${currentCredits}`
+                : ""}
+            。
           </p>
         </div>
         <button

@@ -1,11 +1,13 @@
 import { SubmissionForm } from "@/components/SubmissionForm";
 import { StatePanel } from "@/components/StatePanel";
 import { requireRole } from "@/lib/auth";
+import { isGlobalUnlimitedCreditsEnabled } from "@/lib/credits";
 
 export const dynamic = "force-dynamic";
 
 export default async function NewSubmissionPage() {
   const { appUser } = await requireRole(["student"]);
+  const creditsUnlimited = isGlobalUnlimitedCreditsEnabled() || appUser.unlimitedCredits;
 
   return (
     <div className="space-y-6">
@@ -34,7 +36,7 @@ export default async function NewSubmissionPage() {
           </div>
         </div>
       </section>
-      {appUser.credits <= 0 ? (
+      {appUser.credits <= 0 && !creditsUnlimited ? (
         <StatePanel
           state="empty"
           title="目前沒有可用批改點數"
@@ -43,7 +45,7 @@ export default async function NewSubmissionPage() {
           actionLabel="返回學生主頁"
         />
       ) : (
-        <SubmissionForm currentCredits={appUser.credits} />
+        <SubmissionForm currentCredits={appUser.credits} creditsUnlimited={creditsUnlimited} />
       )}
     </div>
   );

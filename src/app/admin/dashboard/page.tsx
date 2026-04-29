@@ -1,7 +1,9 @@
 import { type UserRole } from "@prisma/client";
 import { CreditAdjustmentForm } from "@/components/admin/CreditAdjustmentForm";
 import { RoleUpdateForm } from "@/components/admin/RoleUpdateForm";
+import { UnlimitedCreditsForm } from "@/components/admin/UnlimitedCreditsForm";
 import { requireRole } from "@/lib/auth";
+import { isGlobalUnlimitedCreditsEnabled } from "@/lib/credits";
 import { prisma } from "@/lib/db";
 import { assignStudentToClassAction, createClassAction } from "../actions";
 
@@ -15,6 +17,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
 
 export default async function AdminDashboardPage() {
   await requireRole(["admin"]);
+  const globalUnlimitedCredits = isGlobalUnlimitedCreditsEnabled();
 
   const [users, transactions, classes] = await Promise.all([
     prisma.appUser.findMany({
@@ -45,6 +48,11 @@ export default async function AdminDashboardPage() {
         <p className="mt-3 max-w-2xl text-sm leading-7 text-ink/75">
           所有角色與點數變更都在伺服器端檢查管理員權限；點數每次變動都會保留交易紀錄。
         </p>
+        {globalUnlimitedCredits ? (
+          <p className="mt-4 rounded-[1rem] border border-good/20 bg-good/10 px-4 py-3 text-sm text-ink/80">
+            UAT 全站無限點數已啟用；所有學生提交文章時都不會扣點。
+          </p>
+        ) : null}
       </section>
 
       <section className="space-y-4">
@@ -70,13 +78,18 @@ export default async function AdminDashboardPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="text-lg text-ink">{user.name}</h3>
                     <span className="pill">{ROLE_LABELS[user.role]}</span>
-                    <span className="pill pill-positive">{user.credits} 點</span>
+                    <span className="pill pill-positive">
+                      {globalUnlimitedCredits || user.unlimitedCredits ? "無限點數" : `${user.credits} 點`}
+                    </span>
                   </div>
                   <p className="mt-1 break-all text-xs text-muted">{user.email || "未有電郵"}</p>
                   <p className="mt-1 break-all text-xs text-muted">{user.clerkUserId}</p>
                 </div>
                 <RoleUpdateForm targetClerkUserId={user.clerkUserId} currentRole={user.role} />
-                <CreditAdjustmentForm targetClerkUserId={user.clerkUserId} />
+                <div className="space-y-2">
+                  <UnlimitedCreditsForm targetClerkUserId={user.clerkUserId} enabled={user.unlimitedCredits} />
+                  <CreditAdjustmentForm targetClerkUserId={user.clerkUserId} />
+                </div>
               </div>
             </article>
           ))}

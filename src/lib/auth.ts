@@ -208,7 +208,9 @@ function nameFor(user: ClerkLikeUser, params?: UserParams) {
   const joined = [user?.firstName, user?.lastName].filter(Boolean).join(" ").trim();
   if (joined) return joined;
 
-  return primaryEmailFor(user) || "同學";
+  if (user?.username) return user.username;
+
+  return "同學";
 }
 
 function bootstrapAdminIds() {

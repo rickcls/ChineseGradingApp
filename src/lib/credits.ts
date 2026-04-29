@@ -3,6 +3,10 @@ import "server-only";
 import { prisma } from "@/lib/db";
 import { requireRole } from "@/lib/auth";
 
+export function isGlobalUnlimitedCreditsEnabled() {
+  return isTruthyEnv(process.env.UAT_UNLIMITED_CREDITS || process.env.GLOBAL_UNLIMITED_CREDITS);
+}
+
 export class InsufficientCreditsError extends Error {
   constructor(message = "沒有足夠批改點數。") {
     super(message);
@@ -69,6 +73,11 @@ export async function deductCreditForSubmission() {
   const { clerkUserId } = await requireRole(["student"]);
 
   return prisma.$transaction(async (tx) => {
+    const appUser = await tx.appUser.findUniqueOrThrow({ where: { clerkUserId } });
+    if (isGlobalUnlimitedCreditsEnabled() || appUser.unlimitedCredits) {
+      return appUser;
+    }
+
     const updated = await tx.appUser.updateMany({
       where: {
         clerkUserId,
@@ -98,6 +107,11 @@ export async function refundCreditForSubmission(clerkUserId: string, reason: str
   const normalizedReason = nonEmptyReason(reason);
 
   return prisma.$transaction(async (tx) => {
+    const existing = await tx.appUser.findUniqueOrThrow({ where: { clerkUserId } });
+    if (isGlobalUnlimitedCreditsEnabled() || existing.unlimitedCredits) {
+      return existing;
+    }
+
     const appUser = await tx.appUser.update({
       where: { clerkUserId },
       data: { credits: { increment: 1 } },
@@ -128,4 +142,8 @@ function nonEmptyReason(reason: string) {
     throw new Error("Credit transaction reason is required.");
   }
   return normalized;
+}
+
+function isTruthyEnv(value: string | undefined) {
+  return /^(1|true|yes|on)$/i.test(value?.trim() || "");
 }

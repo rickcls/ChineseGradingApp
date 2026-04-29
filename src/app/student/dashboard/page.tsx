@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { requireRole } from "@/lib/auth";
+import { isGlobalUnlimitedCreditsEnabled } from "@/lib/credits";
 import { CoachCard } from "@/components/CoachCard";
 import { StatePanel } from "@/components/StatePanel";
 
@@ -8,6 +9,7 @@ export const dynamic = "force-dynamic";
 
 export default async function StudentDashboardPage() {
   const { appUser: user } = await requireRole(["student"]);
+  const creditsUnlimited = isGlobalUnlimitedCreditsEnabled() || user.unlimitedCredits;
   const [submissions, submissionStats, totalSubmissionCount, revisionsStarted, confirmed, improving] = await Promise.all([
     prisma.submission.findMany({
       where: { userId: user.id },
@@ -73,7 +75,12 @@ export default async function StudentDashboardPage() {
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <MetricCard label="可用點數" value={`${user.credits}`} hint="每提交一篇文章會使用 1 點" tone="primary" />
+            <MetricCard
+              label="可用點數"
+              value={creditsUnlimited ? "無限" : `${user.credits}`}
+              hint={creditsUnlimited ? "UAT 或測試帳戶模式，不會扣點" : "每提交一篇文章會使用 1 點"}
+              tone="primary"
+            />
             <MetricCard label="已寫文章" value={`${totalSubmissionCount}`} hint="每一篇都在累積你的寫作肌肉" />
             <MetricCard
               label="最近平均"
@@ -238,9 +245,16 @@ function MetricCard({
 }
 
 function greetingFor(name: string, count: number): string {
-  if (count === 0) return `你好，${name}。先交出第一篇，我會陪你把寫作這件事慢慢變得不那麼可怕。`;
-  if (count < 3) return `${name}，很高興又見到你。每一次願意交稿，都是在替自己累積更穩的表達力。`;
-  return `${name}，你已經寫了 ${count} 篇文章。這份持續練習，本身就很值得被看見。`;
+  const displayName = displayNameForGreeting(name);
+  if (count === 0) return `你好，${displayName}。先交出第一篇，我會陪你把寫作這件事慢慢變得不那麼可怕。`;
+  if (count < 3) return `${displayName}，很高興又見到你。每一次願意交稿，都是在替自己累積更穩的表達力。`;
+  return `${displayName}，你已經寫了 ${count} 篇文章。這份持續練習，本身就很值得被看見。`;
+}
+
+function displayNameForGreeting(name: string) {
+  const trimmed = name.trim();
+  if (!trimmed || trimmed.includes("@")) return "同學";
+  return trimmed;
 }
 
 function sourceLabel(source: string) {

@@ -14,6 +14,7 @@ model AppUser {
   name           String
   role           UserRole  @default(student)
   credits        Int       @default(0)
+  unlimitedCredits Boolean @default(false)
   plan           String    @default("free")
   paymentStatus  String    @default("free")
   gradeLevel     String    @default("S2") // e.g. "P6", "S1"..."S6"

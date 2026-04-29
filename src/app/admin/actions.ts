@@ -50,6 +50,21 @@ export async function adjustCreditsAction(formData: FormData) {
   revalidatePath("/student/dashboard");
 }
 
+export async function updateUnlimitedCreditsAction(formData: FormData) {
+  await requireRole(["admin"]);
+
+  const targetClerkUserId = stringField(formData, "targetClerkUserId");
+  const unlimitedCredits = formData.get("unlimitedCredits") === "on";
+
+  await prisma.appUser.update({
+    where: { clerkUserId: targetClerkUserId },
+    data: { unlimitedCredits },
+  });
+
+  revalidatePath("/admin/dashboard");
+  revalidatePath("/student/dashboard");
+}
+
 export async function createClassAction(formData: FormData) {
   await requireRole(["admin"]);
 

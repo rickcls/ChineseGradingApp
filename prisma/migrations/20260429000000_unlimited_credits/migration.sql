@@ -1,0 +1,1 @@
+ALTER TABLE "AppUser" ADD COLUMN "unlimitedCredits" BOOLEAN NOT NULL DEFAULT false;
