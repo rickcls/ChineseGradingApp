@@ -1,13 +1,84 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { clerkClient } from "@clerk/nextjs/server";
+import { clerkClient, type User } from "@clerk/nextjs/server";
 import { type UserRole } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireRole } from "@/lib/auth";
 import { addCreditsToUser, removeCreditsFromUser } from "@/lib/credits";
 
 const ROLES = new Set<UserRole>(["student", "teacher", "admin"]);
+const INITIAL_FREE_CREDITS = 3;
+const INITIAL_CREDIT_REASON = "initial_free_credits";
+
+export async function syncClerkUsersAction() {
+  await requireRole(["admin"]);
+
+  const client = await clerkClient();
+  const clerkUsers: User[] = [];
+  const limit = 500;
+  let offset = 0;
+  let totalCount = 0;
+
+  do {
+    const page = await client.users.getUserList({
+      limit,
+      offset,
+      orderBy: "+created_at",
+    });
+
+    if (page.data.length === 0) {
+      break;
+    }
+
+    clerkUsers.push(...page.data);
+    totalCount = page.totalCount;
+    offset += page.data.length;
+  } while (offset < totalCount);
+
+  let created = 0;
+  let linked = 0;
+
+  for (const cu of clerkUsers) {
+    const email =
+      cu.emailAddresses.find((e) => e.id === cu.primaryEmailAddressId)?.emailAddress ??
+      cu.emailAddresses[0]?.emailAddress ??
+      null;
+    const name = [cu.firstName, cu.lastName].filter(Boolean).join(" ").trim() || cu.username || "同學";
+    const metaRole = (cu.publicMetadata as Record<string, unknown>)?.role;
+    const role: UserRole = metaRole === "teacher" || metaRole === "admin" ? (metaRole as UserRole) : "student";
+
+    const existing = await prisma.appUser.findUnique({ where: { clerkUserId: cu.id } });
+    if (existing) continue;
+
+    // Try to link by email
+    if (email) {
+      const byEmail = await prisma.appUser.findUnique({ where: { email } });
+      if (byEmail && !byEmail.clerkUserId) {
+        await prisma.appUser.update({
+          where: { id: byEmail.id },
+          data: { clerkUserId: cu.id, name, role },
+        });
+        linked++;
+        continue;
+      }
+    }
+
+    // Create new
+    await prisma.$transaction(async (tx) => {
+      await tx.appUser.create({
+        data: { clerkUserId: cu.id, email, name, role, credits: INITIAL_FREE_CREDITS, gradeLevel: "S2" },
+      });
+      await tx.creditTransaction.create({
+        data: { clerkUserId: cu.id, amount: INITIAL_FREE_CREDITS, reason: INITIAL_CREDIT_REASON },
+      });
+    });
+    created++;
+  }
+
+  revalidatePath("/admin/dashboard");
+  return { created, linked };
+}
 
 export async function updateUserRoleAction(formData: FormData) {
   await requireRole(["admin"]);

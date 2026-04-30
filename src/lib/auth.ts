@@ -1,14 +1,12 @@
 import "server-only";
 
 import { cookies } from "next/headers";
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth, clerkClient, currentUser } from "@clerk/nextjs/server";
 import { type AppUser, type UserRole } from "@prisma/client";
 import { prisma } from "./db";
 
-const COOKIE = "ccoach_uid";
-const FORWARDED_USER_HEADER = "x-ccoach-uid";
+const LEGACY_COOKIE = "ccoach_uid";
 const INITIAL_FREE_CREDITS = 3;
 const INITIAL_CREDIT_REASON = "initial_free_credits";
 
@@ -62,7 +60,7 @@ export async function getOrCreateAppUser(params?: UserParams): Promise<Authentic
   if (!userId) redirect("/sign-in");
 
   const [clerkUser, jar] = await Promise.all([currentUser(), cookies()]);
-  const cookieUserId = jar.get(COOKIE)?.value;
+  const legacyCookieUserId = jar.get(LEGACY_COOKIE)?.value;
   const email = primaryEmailFor(clerkUser);
   const name = nameFor(clerkUser, params);
   const requestedGradeLevel = params?.gradeLevel?.trim() || undefined;
@@ -93,8 +91,8 @@ export async function getOrCreateAppUser(params?: UserParams): Promise<Authentic
     }
   }
 
-  if (!appUser && cookieUserId) {
-    const legacyUser = await prisma.appUser.findUnique({ where: { id: cookieUserId } });
+  if (!appUser && legacyCookieUserId) {
+    const legacyUser = await prisma.appUser.findUnique({ where: { id: legacyCookieUserId } });
     if (legacyUser && !legacyUser.clerkUserId) {
       appUser = await prisma.$transaction(async (tx) => {
         const updated = await tx.appUser.update({

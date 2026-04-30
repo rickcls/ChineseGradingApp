@@ -8,6 +8,8 @@ This is an AI Chinese writing coach for Hong Kong students. Students can submit 
 
 The UI language is mostly Traditional Chinese, with a supportive coaching tone rather than a cold grading tone.
 
+Three user roles exist: `student`, `teacher`, `admin`. An admin portal lets admins manage roles, credits, and class assignments.
+
 ## Tech Stack
 
 - Framework: Next.js 14 App Router
@@ -16,6 +18,8 @@ The UI language is mostly Traditional Chinese, with a supportive coaching tone r
 - Database: PostgreSQL through Prisma
 - ORM: Prisma Client
 - Validation: Zod
+- Authentication: Clerk (`@clerk/nextjs` v7) with role-based access
+- Webhook verification: `svix` (for Clerk webhooks)
 - AI providers:
   - OpenRouter for most text and vision calls
   - Anthropic direct fallback path is also implemented
@@ -39,14 +43,27 @@ The `postinstall` script runs Prisma generation and copies PDF.js assets into `p
 
 Do not hard-code secrets. Expected environment variables include:
 
+**Database**
 - `DATABASE_URL`: PostgreSQL connection string
+
+**Clerk (authentication)**
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`: Clerk publishable key
+- `CLERK_SECRET_KEY`: Clerk secret key
+- `NEXT_PUBLIC_CLERK_SIGN_IN_URL`: `/sign-in`
+- `NEXT_PUBLIC_CLERK_SIGN_UP_URL`: `/sign-up`
+- `NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL`: `/`
+- `NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL`: `/`
+- `CLERK_WEBHOOK_SECRET`: signing secret from the Clerk dashboard webhook config (required for `POST /api/webhooks/clerk`)
+- `ADMIN_CLERK_USER_IDS`: comma-separated Clerk user IDs that are always treated as `admin` regardless of DB role (bootstrap admins)
+
+**AI**
 - `OPENROUTER_API_KEY`: primary AI API key
 - `ANTHROPIC_API_KEY`: optional direct Anthropic fallback
 - `OPENROUTER_HTTP_REFERER`: optional OpenRouter metadata
 - `OPENROUTER_APP_NAME`: optional OpenRouter metadata
 - `ANALYSIS_MODEL`: optional analysis model override
 - `ANALYSIS_FALLBACK_MODEL`: optional analysis fallback override
-- `COACH_MODEL`: currently defined in AI config for coaching defaults
+- `COACH_MODEL`: coaching model (defaults to `anthropic/claude-3.5-haiku`)
 - `OCR_MODEL`: optional OCR model override
 - `OCR_FALLBACK_MODEL`: optional OCR fallback override
 - `MODEL_PASSAGE_MODEL`: optional reference passage model override
@@ -56,23 +73,75 @@ Do not hard-code secrets. Expected environment variables include:
 
 ## Authentication Model
 
-The app currently uses anonymous cookie-based users, not a full login system.
+The app uses **Clerk** for authentication. All routes except `/sign-in`, `/sign-up`, and `/api/webhooks/*` are protected by `clerkMiddleware` in `src/middleware.ts`.
 
-- Middleware creates a `ccoach_uid` cookie if missing.
-- `src/lib/auth.ts` reads that cookie and creates/fetches a `User` row.
-- Default user display name is `同學`.
-- Default grade level is `S2`.
+### User identity flow
+
+1. User signs in via Clerk.
+2. On first visit to a protected page, `getOrCreateAppUser()` in `src/lib/auth.ts` is called — it upserts an `AppUser` row in Postgres keyed by `clerkUserId`.
+3. Legacy cookie-based rows (from before Clerk was added) are linked to the Clerk account on first sign-in by matching on email or the old `ccoach_uid` cookie.
+4. The Clerk webhook at `POST /api/webhooks/clerk` handles `user.created` and `user.updated` events, creating/syncing DB records immediately on signup regardless of page visits.
+
+### Roles
+
+Three roles: `student` (default), `teacher`, `admin`.
+
+Role is stored in two places:
+- `AppUser.role` in Postgres (source of truth for credits/class logic)
+- `publicMetadata.role` in Clerk (used by session claims and `requireRole` middleware checks)
+
+`syncClerkRole()` in `auth.ts` keeps the Clerk metadata in sync automatically on every `getOrCreateAppUser()` call. Admins can also update roles via the admin portal, which writes both places atomically.
+
+Bootstrap admins are set via `ADMIN_CLERK_USER_IDS` env var — those IDs are always treated as `admin` even if the DB row says otherwise.
+
+### Key auth functions (src/lib/auth.ts)
+
+- `getOrCreateAppUser()`: gets or creates the `AppUser` row, syncs Clerk metadata, ensures initial credits
+- `getCurrentUserRole()`: reads role from DB / Clerk metadata / session claims
+- `requireRole(roles)`: redirects to `/unauthorized` if current user's role is not in the allowed list
 
 Files:
+- `src/middleware.ts` — Clerk middleware, cookie passthrough, public route list
+- `src/lib/auth.ts` — DB upsert, role sync, bootstrap admin check
 
-- `src/middleware.ts`
-- `src/lib/auth.ts`
+## Admin Portal
+
+Route: `/admin/dashboard` (requires `admin` role)
+
+Features:
+- **User list**: all Clerk-linked `AppUser` rows with role badge and credit balance
+- **Role management**: change any user's role (writes DB + Clerk metadata)
+- **Credit management**: add or remove credits; toggle per-user unlimited credits
+- **Class management**: create classes assigned to teachers; assign students to classes
+- **Credit transaction log**: last 50 transactions with amounts and reasons
+- **Sync from Clerk button**: backfills DB records for Clerk users who haven't visited a page yet (calls `syncClerkUsersAction`)
+
+Legacy users (no `clerkUserId`) are hidden from role/credit management with a count note — they must sign in via Clerk to be managed.
+
+Important files:
+- `src/app/admin/dashboard/page.tsx`
+- `src/app/admin/actions.ts` — all admin server actions
+- `src/components/admin/RoleUpdateForm.tsx`
+- `src/components/admin/CreditAdjustmentForm.tsx`
+- `src/components/admin/UnlimitedCreditsForm.tsx`
+- `src/components/admin/SyncClerkUsersButton.tsx`
+
+### Clerk Webhook Setup
+
+To ensure users appear in the admin immediately on signup:
+
+1. In Clerk Dashboard → Webhooks → Add Endpoint
+2. URL: `https://your-domain.com/api/webhooks/clerk`
+3. Subscribe to: `user.created`, `user.updated`
+4. Copy Signing Secret → set as `CLERK_WEBHOOK_SECRET` in env
+
+File: `src/app/api/webhooks/clerk/route.ts`
 
 ## Data Model
 
 Main Prisma models in `prisma/schema.prisma`:
 
-- `User`: anonymous or future authenticated student identity
+- `AppUser`: authenticated student/teacher/admin identity (linked to Clerk via `clerkUserId`); holds role, credits, grade level
 - `Submission`: original and verified student text, source, status, OCR metadata
 - `Analysis`: scores, feedback, strengths, revision priorities, model metadata
 - `ErrorRecord`: evidence spans, categories, severity, suggestions, offsets
@@ -83,17 +152,26 @@ Main Prisma models in `prisma/schema.prisma`:
 - `Rubric`: rubric JSON
 - `WritingTask`: optional seeded writing prompts
 - `FeedbackEvent`: placeholder for feedback/reaction tracking
+- `CreditTransaction`: audit log of all credit changes (amount, reason, clerkUserId)
+- `Class`: class entity with assigned teacher (`teacherClerkUserId`)
+- `StudentClass`: many-to-many join between students and classes
 
 Status/state enums already exist for submissions, weakness profiles, notebook entry types, etc.
 
 ## Main Pages
 
-- `/`: dashboard with greeting, recent submissions, average score, revision count, confirmed/improving weaknesses
+- `/`: redirects to `/dashboard`
+- `/dashboard`: role-aware redirect → `/student/dashboard`, `/teacher/dashboard`, or `/admin/dashboard`
+- `/student/dashboard`: student home with greeting, recent submissions, confirmed/improving weaknesses
+- `/teacher/dashboard`: teacher view of assigned class and student submissions
+- `/admin/dashboard`: admin portal (roles, credits, classes, sync)
 - `/submissions/new`: submission form with typed, photo, and scan modes
 - `/submissions/[id]`: full feedback page with scores, DSE level, strengths, priorities, annotations, revision workbench, model passage panel, and notebook quick save
 - `/submissions/[id]/compare`: revision comparison view
 - `/weaknesses`: ability map and recurring weakness report
 - `/notebook`: notebook workspace for saved phrases/lessons/manual entries
+- `/sign-in`, `/sign-up`: Clerk-hosted auth pages
+- `/unauthorized`: shown when a user tries to access a page above their role
 
 Supporting UI components are in `src/components/`.
 
@@ -103,7 +181,7 @@ Primary route: `src/app/api/submissions/route.ts`
 
 1. Client posts text, grade level, optional task prompt, optional genre, and source.
 2. Server validates input with Zod.
-3. Server gets or creates the anonymous user.
+3. Server gets or creates the app user via `getOrCreateAppUser()`.
 4. A `Submission` is created with `verifiedText`.
 5. `analyzeSubmission()` runs the AI rubric analysis.
 6. An `Analysis` row is created.
@@ -115,7 +193,6 @@ Primary route: `src/app/api/submissions/route.ts`
 If analysis fails after submission creation, the submission is marked `failed`.
 
 Important files:
-
 - `src/components/SubmissionForm.tsx`
 - `src/app/api/submissions/route.ts`
 - `src/lib/analysis.ts`
@@ -155,7 +232,6 @@ Photo/scan submission is handled by `CameraCaptureFlow`:
 6. User can review/edit recognized text before submitting to analysis.
 
 Important files:
-
 - `src/components/CameraCaptureFlow.tsx`
 - `src/app/api/ocr/route.ts`
 - `src/lib/ocr.ts`
@@ -167,15 +243,10 @@ Important files:
 Weaknesses are derived from persisted `ErrorRecord` rows after each analysis.
 
 `src/lib/weakness.ts`:
-
 - Ignores OCR-suspect errors
 - Groups by `category::subcategory`
 - Tracks evidence count, submission IDs, recent rolling counts, and severity EWMA
-- Uses status machine:
-  - `watching`
-  - `confirmed`
-  - `improving`
-  - `resolved`
+- Uses status machine: `watching` → `confirmed` → `improving` → `resolved`
 
 The `/weaknesses` page also renders recent rubric averages as an ability map.
 
@@ -186,7 +257,6 @@ Students can submit a revised version for an analyzed submission.
 Primary route: `src/app/api/submissions/[id]/revision/route.ts`
 
 The route:
-
 - Validates revised text
 - Verifies ownership
 - Accepts optional targeted error IDs
@@ -196,7 +266,6 @@ The route:
 - Returns a compare URL
 
 Important UI components:
-
 - `src/components/RevisionComposer.tsx`
 - `src/components/RevisionComparison.tsx`
 - `src/components/RevisionSuggestionList.tsx`
@@ -208,7 +277,6 @@ Students can generate an AI reference passage for comparison and learning.
 Primary route: `src/app/api/submissions/[id]/model-passage/route.ts`
 
 `src/lib/modelPassage.ts`:
-
 - Uses the original text, grade level, existing coach feedback, and revision priorities
 - Generates a full reference passage
 - Returns 5-8 teaching highlights
@@ -216,7 +284,6 @@ Primary route: `src/app/api/submissions/[id]/model-passage/route.ts`
 - Includes parsing/repair behavior for model JSON responses
 
 Important UI:
-
 - `src/components/ModelPassagePanel.tsx`
 
 ## AI Generated Notes and Notebook
@@ -224,13 +291,11 @@ Important UI:
 Notebook entries let students save phrases, lessons, and manual notes.
 
 Primary routes:
-
 - `src/app/api/notebook/route.ts`
 - `src/app/api/notebook/[entryId]/route.ts`
 - `src/app/api/submissions/[id]/notebook-note/route.ts`
 
 Notebook supports:
-
 - Create, list, update, delete entries
 - Filter by submission, tag, or text search
 - Link entries to submissions and AI model passages
@@ -239,20 +304,17 @@ Notebook supports:
 - Optionally target one marking focus: `內容`, `表達`, `結構`, or `標點`
 
 AI note generation:
-
 - Implemented in `src/lib/notebookNote.ts`
 - Uses `COACH_MODEL` with `NOTEBOOK_NOTE_FALLBACK_MODEL`
 - Validates model output with Zod before returning a draft
 - Returns a draft only; the student still saves it through the normal notebook create route
-- Current note template is intentionally organized as `【學習重點】`, `【原文觀察】`, `【下次做法】`, `【示範句】`, and `【檢查清單】`
+- Current note template: `【學習重點】`, `【原文觀察】`, `【下次做法】`, `【示範句】`, `【檢查清單】`
 
 Feedback page placement:
-
 - `/submissions/[id]` has separate top-level tabs for `AI 參考範文` and `AI 參考筆記`
 - The notes tab uses `NotebookQuickPanel` and calls the notebook-note API to fill the editable draft
 
 Important files:
-
 - `src/app/notebook/page.tsx`
 - `src/components/NotebookWorkspace.tsx`
 - `src/components/NotebookQuickPanel.tsx`
@@ -270,8 +332,12 @@ Important files:
 
 ## Current Completed Features
 
-- Anonymous student session creation
-- Dashboard with recent submissions and progress metrics
+- Clerk-based authentication with role-based access control (student / teacher / admin)
+- Anonymous-to-Clerk migration path (links old cookie users on first sign-in)
+- Clerk webhook sync: DB record created immediately on Clerk signup
+- Admin portal: user role management, credit management, class creation, student assignment, transaction log, Clerk sync button
+- Teacher dashboard with class and student submission views
+- Student dashboard with recent submissions and progress metrics
 - Typed writing submission
 - Photo/scan/PDF-to-OCR submission path
 - AI HKDSE-style analysis
@@ -289,7 +355,6 @@ Important files:
 
 ## Known Limitations and Extension Points
 
-- No real authentication yet; anonymous cookie users only.
 - Submission analysis is synchronous inside the API route. Long model calls can still hit hosting limits.
 - OCR uses AI vision models rather than deterministic OCR confidence maps.
 - `FeedbackEvent` exists but there is no full UI flow for usefulness/error reactions yet.
@@ -314,6 +379,8 @@ Important files:
 - Preserve the existing Chinese coaching tone.
 - Keep AI outputs schema-validated with Zod when possible.
 - Keep character offsets compatible with JavaScript string indexing, as error annotations depend on them.
-- Avoid replacing the anonymous user flow unless the task explicitly asks for real auth.
+- The auth model is now Clerk-based. Do not revert to anonymous cookie-only users. The legacy cookie path is only kept for migrating old anonymous sessions.
+- Role changes must update both `AppUser.role` in Postgres AND `publicMetadata.role` in Clerk — see `updateUserRoleAction` in `src/app/admin/actions.ts` for the correct pattern.
 - Be careful with Prisma schema changes; update API routes and UI serializers together.
 - Prefer small, local changes over broad rewrites because many flows are connected through submission, analysis, weakness, revision, model passage, and notebook data.
+- The middleware is in `src/middleware.ts` (not `src/proxy.ts` — `proxy.ts` is a stale copy kept for reference).

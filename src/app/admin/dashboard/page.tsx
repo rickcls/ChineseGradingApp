@@ -1,28 +1,29 @@
-import { type UserRole } from "@prisma/client";
-import { CreditAdjustmentForm } from "@/components/admin/CreditAdjustmentForm";
-import { RoleUpdateForm } from "@/components/admin/RoleUpdateForm";
-import { UnlimitedCreditsForm } from "@/components/admin/UnlimitedCreditsForm";
+import { AdminUserDirectory, type AdminDirectoryUser } from "@/components/admin/AdminUserDirectory";
 import { requireRole } from "@/lib/auth";
 import { isGlobalUnlimitedCreditsEnabled } from "@/lib/credits";
 import { prisma } from "@/lib/db";
 import { assignStudentToClassAction, createClassAction } from "../actions";
+import { SyncClerkUsersButton } from "@/components/admin/SyncClerkUsersButton";
 
 export const dynamic = "force-dynamic";
-
-const ROLE_LABELS: Record<UserRole, string> = {
-  student: "學生",
-  teacher: "老師",
-  admin: "管理員",
-};
 
 export default async function AdminDashboardPage() {
   await requireRole(["admin"]);
   const globalUnlimitedCredits = isGlobalUnlimitedCreditsEnabled();
 
-  const [users, transactions, classes] = await Promise.all([
+  const [linkedUsers, legacyUserCount, transactions, classes] = await Promise.all([
     prisma.appUser.findMany({
+      where: {
+        clerkUserId: {
+          not: null,
+        },
+      },
       orderBy: { createdAt: "desc" },
-      take: 100,
+    }),
+    prisma.appUser.count({
+      where: {
+        clerkUserId: null,
+      },
     }),
     prisma.creditTransaction.findMany({
       orderBy: { createdAt: "desc" },
@@ -34,11 +35,20 @@ export default async function AdminDashboardPage() {
     }),
   ]);
 
-  const linkedUsers = users.filter((user) => user.clerkUserId);
-  const legacyUsers = users.filter((user) => !user.clerkUserId);
   const teachers = linkedUsers.filter((user) => user.role === "teacher");
   const students = linkedUsers.filter((user) => user.role === "student");
   const userByClerkId = new Map(linkedUsers.map((user) => [user.clerkUserId!, user]));
+  const directoryUsers: AdminDirectoryUser[] = linkedUsers.map((user) => ({
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    clerkUserId: user.clerkUserId!,
+    role: user.role,
+    credits: user.credits,
+    unlimitedCredits: user.unlimitedCredits,
+    createdAtIso: user.createdAt.toISOString(),
+    createdAtLabel: formatDate(user.createdAt),
+  }));
 
   return (
     <div className="space-y-8">
@@ -48,6 +58,10 @@ export default async function AdminDashboardPage() {
         <p className="mt-3 max-w-2xl text-sm leading-7 text-ink/75">
           所有角色與點數變更都在伺服器端檢查管理員權限；點數每次變動都會保留交易紀錄。
         </p>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <SyncClerkUsersButton />
+          <span className="text-xs text-muted">把 Clerk 上已有帳號但未出現在下方列表的用戶同步過來</span>
+        </div>
         {globalUnlimitedCredits ? (
           <p className="mt-4 rounded-[1rem] border border-good/20 bg-good/10 px-4 py-3 text-sm text-ink/80">
             UAT 全站無限點數已啟用；所有學生提交文章時都不會扣點。
@@ -55,46 +69,11 @@ export default async function AdminDashboardPage() {
         ) : null}
       </section>
 
-      <section className="space-y-4">
-        <div>
-          <p className="section-kicker">用戶列表</p>
-          <h2 className="mt-2 text-2xl">更改角色與調整點數</h2>
-          {legacyUsers.length > 0 ? (
-            <p className="mt-2 text-sm leading-7 text-muted">
-              已隱藏 {legacyUsers.length} 個舊匿名紀錄；那些紀錄未連結 Clerk，不能用角色或點數系統管理。
-            </p>
-          ) : null}
-        </div>
-        <div className="space-y-3">
-          {linkedUsers.length === 0 ? (
-            <div className="paper-panel p-5 text-sm text-muted">
-              暫時沒有已連結 Clerk 的用戶。請讓學生或老師先登入一次，他們就會出現在這裡。
-            </div>
-          ) : null}
-          {linkedUsers.map((user) => (
-            <article key={user.id} className="paper-panel p-4">
-              <div className="grid gap-4 xl:grid-cols-[minmax(14rem,1fr)_minmax(18rem,1.1fr)_minmax(24rem,1.4fr)] xl:items-center">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-lg text-ink">{user.name}</h3>
-                    <span className="pill">{ROLE_LABELS[user.role]}</span>
-                    <span className="pill pill-positive">
-                      {globalUnlimitedCredits || user.unlimitedCredits ? "無限點數" : `${user.credits} 點`}
-                    </span>
-                  </div>
-                  <p className="mt-1 break-all text-xs text-muted">{user.email || "未有電郵"}</p>
-                  <p className="mt-1 break-all text-xs text-muted">{user.clerkUserId}</p>
-                </div>
-                <RoleUpdateForm targetClerkUserId={user.clerkUserId} currentRole={user.role} />
-                <div className="space-y-2">
-                  <UnlimitedCreditsForm targetClerkUserId={user.clerkUserId} enabled={user.unlimitedCredits} />
-                  <CreditAdjustmentForm targetClerkUserId={user.clerkUserId} />
-                </div>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
+      <AdminUserDirectory
+        users={directoryUsers}
+        legacyUserCount={legacyUserCount}
+        globalUnlimitedCredits={globalUnlimitedCredits}
+      />
 
       <section className="grid gap-5 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
         <div className="paper-panel p-5">
