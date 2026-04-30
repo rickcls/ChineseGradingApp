@@ -13,7 +13,7 @@ const Body = z.object({
 });
 
 export async function POST(req: Request) {
-  await requireRole(["student"]);
+  await requireRole(["student", "admin"]);
 
   const json = await req.json().catch(() => null);
   const parsed = Body.safeParse(json);

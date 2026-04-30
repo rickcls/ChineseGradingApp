@@ -8,22 +8,23 @@ export const dynamic = "force-dynamic";
 
 export default async function TeacherSubmissionDetailPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const { clerkUserId } = await requireRole(["teacher"]);
+  const { clerkUserId, role } = await requireRole(["teacher", "admin"]);
+  const isAdmin = role === "admin";
 
   const classes = await prisma.class.findMany({
-    where: { teacherClerkUserId: clerkUserId },
+    where: isAdmin ? undefined : { teacherClerkUserId: clerkUserId },
     include: { studentClasses: true },
   });
   const assignedStudentClerkUserIds = classes.flatMap((klass) =>
     klass.studentClasses.map((membership) => membership.studentClerkUserId),
   );
 
-  if (assignedStudentClerkUserIds.length === 0) notFound();
+  if (!isAdmin && assignedStudentClerkUserIds.length === 0) notFound();
 
   const submission = await prisma.submission.findFirst({
     where: {
       id: params.id,
-      user: { clerkUserId: { in: assignedStudentClerkUserIds } },
+      ...(isAdmin ? {} : { user: { clerkUserId: { in: assignedStudentClerkUserIds } } }),
     },
     include: {
       user: true,

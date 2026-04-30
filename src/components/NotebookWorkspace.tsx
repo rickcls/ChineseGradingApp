@@ -218,9 +218,13 @@ export function NotebookWorkspace({
               type="button"
               onClick={createEntry}
               disabled={submitting || draftContent.trim().length < 2}
+              aria-busy={submitting}
               className="btn-primary"
             >
-              {submitting ? "儲存中…" : "加入筆記本"}
+              <span className="inline-flex items-center gap-2">
+                {submitting ? <span aria-hidden="true" className="pending-spinner" /> : null}
+                <span>{submitting ? "儲存中…" : "加入筆記本"}</span>
+              </span>
             </button>
           </div>
         </div>

@@ -15,7 +15,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export default async function WeaknessReportPage() {
-  const { appUser: user } = await requireRole(["student"]);
+  const { appUser: user } = await requireRole(["student", "admin"]);
   const [profiles, recentSubmissions] = await Promise.all([
     prisma.weaknessProfile.findMany({
       where: { userId: user.id },

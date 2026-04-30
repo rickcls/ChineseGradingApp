@@ -11,7 +11,7 @@ export const maxDuration = 120;
 
 export async function POST(req: Request, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const { appUser: user } = await requireRole(["student"]);
+  const { appUser: user } = await requireRole(["student", "admin"]);
   const body = await req.json().catch(() => ({}));
   const requestedFocusTag = normalizeFocusTag(
     typeof body?.focusTag === "string" ? body.focusTag : undefined,

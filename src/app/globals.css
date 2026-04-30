@@ -51,6 +51,28 @@
     -webkit-tap-highlight-color: transparent;
   }
 
+  a[href],
+  button:not(:disabled) {
+    touch-action: manipulation;
+    transition-duration: 150ms;
+    transition-timing-function: ease;
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+  }
+
+  a[href]:active,
+  button:not(:disabled):active {
+    transform: translateY(1px) scale(0.98);
+  }
+
+  button:disabled,
+  [aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+
+  [aria-busy="true"] {
+    cursor: wait;
+  }
+
   button:focus-visible,
   a:focus-visible,
   input:focus-visible,
@@ -58,6 +80,17 @@
   select:focus-visible {
     outline: 2px solid rgba(59, 91, 165, 0.35);
     outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }
 
@@ -87,15 +120,52 @@
   }
 
   .btn-primary {
-    @apply inline-flex items-center justify-center rounded-full bg-accent px-5 py-2.5 text-sm font-medium text-white shadow-soft transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:bg-accent/50;
+    @apply inline-flex items-center justify-center rounded-full bg-accent px-5 py-2.5 text-sm font-medium text-white shadow-soft transition duration-150 hover:bg-accent/90 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent/20 active:translate-y-px active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-accent/50 disabled:active:translate-y-0 disabled:active:scale-100;
   }
 
   .btn-secondary {
-    @apply inline-flex items-center justify-center rounded-full border border-border/80 bg-white/80 px-5 py-2.5 text-sm font-medium text-ink shadow-sm transition hover:border-accent/40 hover:text-accent;
+    @apply inline-flex items-center justify-center rounded-full border border-border/80 bg-white/80 px-5 py-2.5 text-sm font-medium text-ink shadow-sm transition duration-150 hover:border-accent/40 hover:text-accent focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent/10 active:translate-y-px active:scale-[0.98] disabled:active:translate-y-0 disabled:active:scale-100;
+  }
+
+  .nav-pill {
+    @apply inline-flex shrink-0 items-center justify-center gap-2 rounded-full px-4 py-2 text-sm transition duration-150 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent/10 active:translate-y-px active:scale-[0.98] disabled:active:translate-y-0 disabled:active:scale-100;
+  }
+
+  .nav-pill-active {
+    @apply bg-accent text-white shadow-soft;
+  }
+
+  .nav-pill-idle {
+    @apply border border-border/80 bg-white/85 text-ink/75 hover:border-accent/30 hover:text-accent;
+  }
+
+  .nav-pill-pending {
+    @apply cursor-wait border border-accent/25 bg-accent/10 text-accent shadow-soft;
+  }
+
+  .choice-card {
+    @apply rounded-[1.15rem] border px-4 py-4 text-left transition duration-150 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent/10 active:translate-y-px active:scale-[0.99] disabled:active:translate-y-0 disabled:active:scale-100;
+  }
+
+  .choice-card-active {
+    @apply border-accent/30 bg-accent/5 shadow-soft;
+  }
+
+  .choice-card-idle {
+    @apply border-border/70 bg-white/70 hover:border-accent/20 hover:bg-white/90;
   }
 
   .pill {
-    @apply inline-flex items-center gap-2 rounded-full border border-border/80 bg-white/70 px-3 py-1.5 text-xs font-medium text-ink/75;
+    @apply inline-flex items-center gap-2 rounded-full border border-border/80 bg-white/70 px-3 py-1.5 text-xs font-medium text-ink/75 transition duration-150;
+  }
+
+  a.pill,
+  button.pill {
+    @apply hover:border-accent/35 hover:text-accent focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent/10 active:translate-y-px active:scale-[0.98];
+  }
+
+  .pending-spinner {
+    @apply h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent;
   }
 
   .pill-positive {

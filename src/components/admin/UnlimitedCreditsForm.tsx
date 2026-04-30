@@ -1,4 +1,5 @@
 import { updateUnlimitedCreditsAction } from "@/app/admin/actions";
+import { AdminSubmitButton } from "@/components/admin/AdminSubmitButton";
 
 export function UnlimitedCreditsForm({
   targetClerkUserId,
@@ -23,9 +24,9 @@ export function UnlimitedCreditsForm({
         />
         測試帳戶無限點數
       </label>
-      <button type="submit" className="btn-secondary px-3 py-2 text-xs">
+      <AdminSubmitButton className="btn-secondary px-3 py-2 text-xs" pendingText="儲存中...">
         儲存
-      </button>
+      </AdminSubmitButton>
     </form>
   );
 }

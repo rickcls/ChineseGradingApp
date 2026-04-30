@@ -1,5 +1,6 @@
 import { type UserRole } from "@prisma/client";
 import { updateUserRoleAction } from "@/app/admin/actions";
+import { AdminSubmitButton } from "@/components/admin/AdminSubmitButton";
 
 const ROLE_LABELS: Record<UserRole, string> = {
   student: "學生",
@@ -28,9 +29,9 @@ export function RoleUpdateForm({
           </option>
         ))}
       </select>
-      <button type="submit" className="btn-secondary px-3 py-2 text-xs">
+      <AdminSubmitButton className="btn-secondary px-3 py-2 text-xs" pendingText="更新中...">
         更新角色
-      </button>
+      </AdminSubmitButton>
     </form>
   );
 }

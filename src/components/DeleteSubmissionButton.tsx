@@ -40,12 +40,16 @@ export function DeleteSubmissionButton({ submissionId, className }: DeleteSubmis
         type="button"
         onClick={handleDelete}
         disabled={isDeleting}
+        aria-busy={isDeleting}
         className={
           className ||
-          "inline-flex items-center justify-center rounded-full border border-coral/30 bg-coral/10 px-4 py-2 text-sm font-medium text-coral transition hover:bg-coral/15 disabled:cursor-not-allowed disabled:opacity-60"
+          "inline-flex items-center justify-center rounded-full border border-coral/30 bg-coral/10 px-4 py-2 text-sm font-medium text-coral transition duration-150 hover:bg-coral/15 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-coral/10 active:translate-y-px active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 disabled:active:translate-y-0 disabled:active:scale-100"
         }
       >
-        {isDeleting ? "刪除中…" : "刪除"}
+        <span className="inline-flex items-center gap-2">
+          {isDeleting ? <span aria-hidden="true" className="pending-spinner" /> : null}
+          <span>{isDeleting ? "刪除中…" : "刪除"}</span>
+        </span>
       </button>
       {error ? <span className="max-w-48 text-xs leading-5 text-coral">{error}</span> : null}
     </div>

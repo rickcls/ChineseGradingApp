@@ -50,10 +50,8 @@ export function SubmissionHistoryTabs({ items, children }: SubmissionHistoryTabs
                 aria-controls={`history-panel-${item.id}`}
                 onClick={() => setActiveId(item.id)}
                 className={[
-                  "shrink-0 rounded-full px-4 py-2 text-sm transition",
-                  isActive
-                    ? "bg-accent text-white shadow-soft"
-                    : "border border-border/80 bg-white/85 text-ink/75 hover:border-accent/30 hover:text-accent",
+                  "nav-pill",
+                  isActive ? "nav-pill-active" : "nav-pill-idle",
                 ].join(" ")}
               >
                 {item.label}

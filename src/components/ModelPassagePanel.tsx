@@ -227,9 +227,13 @@ export function ModelPassagePanel({
               type="button"
               onClick={() => openOrGenerate(false)}
               disabled={loading}
+              aria-busy={loading}
               className="btn-primary mt-5 w-full justify-center"
             >
-              {loading ? "AI 正在整理範文…" : "AI 生成參考範文"}
+              <span className="inline-flex items-center gap-2">
+                {loading ? <span aria-hidden="true" className="pending-spinner" /> : null}
+                <span>{loading ? "AI 正在整理範文…" : "AI 生成參考範文"}</span>
+              </span>
             </button>
 
             <p className="mt-3 text-xs leading-6 text-muted">
@@ -273,12 +277,18 @@ export function ModelPassagePanel({
           </ol>
 
           {passage ? (
-            <button type="button" onClick={() => openOrGenerate(true)} disabled={loading} className="btn-secondary mt-4 w-full justify-center">
-              {loading ? "重新生成中…" : "重新生成"}
+            <button type="button" onClick={() => openOrGenerate(true)} disabled={loading} aria-busy={loading} className="btn-secondary mt-4 w-full justify-center">
+              <span className="inline-flex items-center gap-2">
+                {loading ? <span aria-hidden="true" className="pending-spinner" /> : null}
+                <span>{loading ? "重新生成中…" : "重新生成"}</span>
+              </span>
             </button>
           ) : (
-            <button type="button" onClick={() => openOrGenerate(false)} disabled={loading} className="btn-primary mt-4 w-full justify-center">
-              {loading ? "AI 正在整理範文…" : "AI 生成參考範文"}
+            <button type="button" onClick={() => openOrGenerate(false)} disabled={loading} aria-busy={loading} className="btn-primary mt-4 w-full justify-center">
+              <span className="inline-flex items-center gap-2">
+                {loading ? <span aria-hidden="true" className="pending-spinner" /> : null}
+                <span>{loading ? "AI 正在整理範文…" : "AI 生成參考範文"}</span>
+              </span>
             </button>
           )}
         </div>
@@ -444,17 +454,25 @@ export function ModelPassagePanel({
                           type="button"
                           onClick={() => saveHighlight(highlight, "phrase")}
                           disabled={phraseState === "saving" || phraseState === "saved"}
+                          aria-busy={phraseState === "saving"}
                           className="btn-secondary px-4 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          {phraseState === "saved" ? "已收藏句式" : phraseState === "saving" ? "收藏中…" : "收藏句式"}
+                          <span className="inline-flex items-center gap-2">
+                            {phraseState === "saving" ? <span aria-hidden="true" className="pending-spinner" /> : null}
+                            <span>{phraseState === "saved" ? "已收藏句式" : phraseState === "saving" ? "收藏中…" : "收藏句式"}</span>
+                          </span>
                         </button>
                         <button
                           type="button"
                           onClick={() => saveHighlight(highlight, "lesson")}
                           disabled={lessonState === "saving" || lessonState === "saved"}
+                          aria-busy={lessonState === "saving"}
                           className="btn-secondary px-4 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          {lessonState === "saved" ? "已記下提醒" : lessonState === "saving" ? "記錄中…" : "記下提醒"}
+                          <span className="inline-flex items-center gap-2">
+                            {lessonState === "saving" ? <span aria-hidden="true" className="pending-spinner" /> : null}
+                            <span>{lessonState === "saved" ? "已記下提醒" : lessonState === "saving" ? "記錄中…" : "記下提醒"}</span>
+                          </span>
                         </button>
                       </div>
                     </li>
@@ -653,17 +671,25 @@ function HighlightLearningModal({
               type="button"
               onClick={onSavePhrase}
               disabled={phraseState === "saving" || phraseState === "saved"}
+              aria-busy={phraseState === "saving"}
               className="btn-secondary px-4 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {phraseState === "saved" ? "已收藏句式" : phraseState === "saving" ? "收藏中…" : "收藏句式"}
+              <span className="inline-flex items-center gap-2">
+                {phraseState === "saving" ? <span aria-hidden="true" className="pending-spinner" /> : null}
+                <span>{phraseState === "saved" ? "已收藏句式" : phraseState === "saving" ? "收藏中…" : "收藏句式"}</span>
+              </span>
             </button>
             <button
               type="button"
               onClick={onSaveLesson}
               disabled={lessonState === "saving" || lessonState === "saved"}
+              aria-busy={lessonState === "saving"}
               className="btn-secondary px-4 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {lessonState === "saved" ? "已記下提醒" : lessonState === "saving" ? "記錄中…" : "記下提醒"}
+              <span className="inline-flex items-center gap-2">
+                {lessonState === "saving" ? <span aria-hidden="true" className="pending-spinner" /> : null}
+                <span>{lessonState === "saved" ? "已記下提醒" : lessonState === "saving" ? "記錄中…" : "記下提醒"}</span>
+              </span>
             </button>
             <button type="button" onClick={onOpenFullReview} className="btn-secondary px-4 py-2 text-xs">
               打開重點變化總覽

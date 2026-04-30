@@ -19,7 +19,7 @@ type SubmissionForHistory = {
 };
 
 export default async function SubmissionsHistoryPage() {
-  const { appUser: user } = await requireRole(["student"]);
+  const { appUser: user } = await requireRole(["student", "admin"]);
   const submissions = await prisma.submission.findMany({
     where: { userId: user.id },
     orderBy: { createdAt: "desc" },

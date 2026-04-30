@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 
 export default async function SubmissionComparePage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const { appUser: user } = await requireRole(["student"]);
+  const { appUser: user } = await requireRole(["student", "admin"]);
 
   const [submission, recentNotebookEntries] = await prisma.$transaction([
     prisma.submission.findFirst({

@@ -130,10 +130,8 @@ export function SubmissionForm({
                     type="button"
                     onClick={() => setSource(mode.value)}
                     className={[
-                      "rounded-[1.15rem] border px-4 py-4 text-left transition",
-                      active
-                        ? "border-accent/30 bg-accent/5 shadow-soft"
-                        : "border-border/70 bg-white/70 hover:border-accent/20 hover:bg-white/90",
+                      "choice-card",
+                      active ? "choice-card-active" : "choice-card-idle",
                     ].join(" ")}
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -259,9 +257,13 @@ export function SubmissionForm({
         <button
           type="submit"
           disabled={submitting || charCount < 20 || isTooLong || hasNoCredits}
+          aria-busy={submitting}
           className="btn-primary min-w-[11rem]"
         >
-          {submitting ? submitButtonLabel(progressPhase, progressChars) : hasNoCredits ? "沒有可用點數" : "提交給導師"}
+          <span className="inline-flex items-center gap-2">
+            {submitting ? <span aria-hidden="true" className="pending-spinner" /> : null}
+            <span>{submitting ? submitButtonLabel(progressPhase, progressChars) : hasNoCredits ? "沒有可用點數" : "提交給導師"}</span>
+          </span>
         </button>
       </div>
     </form>

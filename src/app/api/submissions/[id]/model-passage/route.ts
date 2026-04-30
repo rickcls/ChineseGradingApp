@@ -10,7 +10,7 @@ export const maxDuration = 300;
 
 export async function POST(_req: Request, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const { appUser: user } = await requireRole(["student"]);
+  const { appUser: user } = await requireRole(["student", "admin"]);
 
   const submission = await prisma.submission.findFirst({
     where: { id: params.id, userId: user.id },

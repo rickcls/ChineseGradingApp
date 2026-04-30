@@ -70,7 +70,7 @@ export async function removeCreditsFromUser(targetClerkUserId: string, amount: n
 }
 
 export async function deductCreditForSubmission() {
-  const { clerkUserId } = await requireRole(["student"]);
+  const { clerkUserId } = await requireRole(["student", "admin"]);
 
   return prisma.$transaction(async (tx) => {
     const appUser = await tx.appUser.findUniqueOrThrow({ where: { clerkUserId } });

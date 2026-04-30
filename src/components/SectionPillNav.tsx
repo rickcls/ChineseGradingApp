@@ -66,10 +66,8 @@ export function SectionPillNav({ items }: SectionPillNavProps) {
               type="button"
               onClick={() => jumpTo(item.id)}
               className={[
-                "shrink-0 rounded-full px-4 py-2 text-sm transition",
-                activeId === item.id
-                  ? "bg-accent text-white shadow-soft"
-                  : "border border-border/80 bg-white/85 text-ink/75 hover:border-accent/30 hover:text-accent",
+                "nav-pill",
+                activeId === item.id ? "nav-pill-active" : "nav-pill-idle",
               ].join(" ")}
             >
               {item.label}

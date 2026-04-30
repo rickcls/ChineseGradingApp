@@ -207,6 +207,9 @@ export function CameraCaptureFlow({ source, text, onTextChange }: CameraCaptureF
   const selectLabel = source === "photo" ? "加入相機／相簿圖片" : "加入掃描圖片或 PDF";
   const acceptValue = source === "photo" ? "image/*" : "image/*,application/pdf";
   const isBusy = isPreparing || isRecognizing;
+  const uploadLabel = isPreparing ? "正在準備…" : selectLabel;
+  const recognitionLabel = isRecognizing ? "正在辨識…" : "開始辨識";
+  const busyStatusLabel = isPreparing ? "正在準備檔案…" : isRecognizing ? "正在辨識文字…" : null;
 
   return (
     <section className="space-y-4 rounded-[1.35rem] border border-border/70 bg-white/80 p-4 shadow-soft">
@@ -216,13 +219,21 @@ export function CameraCaptureFlow({ source, text, onTextChange }: CameraCaptureF
           <h3 className="mt-1 text-xl">先把每一頁排好順序，我們再一起核對文字</h3>
         </div>
         <div className="flex flex-wrap gap-3">
-          <label className="btn-secondary cursor-pointer">
-            {selectLabel}
+          <label
+            aria-disabled={isBusy}
+            className={[
+              "btn-secondary cursor-pointer gap-2",
+              isBusy ? "cursor-wait opacity-70" : "",
+            ].join(" ")}
+          >
+            {isPreparing ? <InlineSpinner /> : null}
+            <span>{uploadLabel}</span>
             <input
               type="file"
               accept={acceptValue}
               capture={source === "photo" ? "environment" : undefined}
               multiple
+              disabled={isBusy}
               className="hidden"
               onChange={onSelectFiles}
             />
@@ -231,9 +242,13 @@ export function CameraCaptureFlow({ source, text, onTextChange }: CameraCaptureF
             type="button"
             onClick={runRecognition}
             disabled={pages.length === 0 || isBusy}
+            aria-busy={isRecognizing}
             className="btn-primary min-w-[9.5rem] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isRecognizing ? "正在辨識…" : "開始辨識"}
+            <span className="inline-flex items-center gap-2">
+              {isRecognizing ? <InlineSpinner /> : null}
+              <span>{recognitionLabel}</span>
+            </span>
           </button>
           {pages.length > 0 ? (
             <button
@@ -262,7 +277,10 @@ export function CameraCaptureFlow({ source, text, onTextChange }: CameraCaptureF
           ) : pages.length > 0 ? (
             <div className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted">
-                <span className="pill">共 {pages.length} 頁</span>
+                <span className={["pill transition", isBusy ? "border-accent/25 bg-accent/10 text-accent" : ""].join(" ")}>
+                  {busyStatusLabel ? <InlineSpinner /> : null}
+                  <span>{busyStatusLabel || `共 ${pages.length} 頁`}</span>
+                </span>
                 <span>{recognitionStatus || "請把第 1 頁放最前，確認好再開始辨識。"}</span>
               </div>
 
@@ -271,7 +289,15 @@ export function CameraCaptureFlow({ source, text, onTextChange }: CameraCaptureF
                   <article key={page.id} className="space-y-3 rounded-[1rem] border border-border/70 bg-white p-3">
                     <div className="flex items-center justify-between gap-3">
                       <span className="pill">第 {index + 1} 頁</span>
-                      <span className="text-xs text-muted">{page.recognizedText ? "已辨識" : "待辨識"}</span>
+                      <span
+                        className={[
+                          "inline-flex items-center gap-1.5 text-xs",
+                          isRecognizing ? "text-accent" : "text-muted",
+                        ].join(" ")}
+                      >
+                        {isRecognizing ? <InlineSpinner size="sm" /> : null}
+                        <span>{isRecognizing ? "辨識中" : page.recognizedText ? "已辨識" : "待辨識"}</span>
+                      </span>
                     </div>
 
                     <div className="overflow-hidden rounded-[0.9rem] border border-border/80 bg-paper/80">
@@ -373,6 +399,17 @@ export function CameraCaptureFlow({ source, text, onTextChange }: CameraCaptureF
         </div>
       </div>
     </section>
+  );
+}
+
+function InlineSpinner({ size = "md" }: { size?: "sm" | "md" }) {
+  const sizeClass = size === "sm" ? "h-2.5 w-2.5 border-[1.5px]" : "h-3.5 w-3.5 border-2";
+
+  return (
+    <span
+      aria-hidden="true"
+      className={`${sizeClass} shrink-0 animate-spin rounded-full border-current border-t-transparent`}
+    />
   );
 }
 

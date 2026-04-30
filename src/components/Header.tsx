@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState, type MouseEvent } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { UserButton, SignInButton, useAuth, useUser } from "@clerk/nextjs";
@@ -26,14 +27,41 @@ const TEACHER_NAV_ITEMS: NavItem[] = [
 const ADMIN_NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "主頁" },
   { href: "/admin/dashboard", label: "用戶管理" },
+  { href: "/student/dashboard", label: "學生主頁" },
+  { href: "/submissions/new", label: "新作提交", exact: true },
+  { href: "/submissions", label: "作品紀錄" },
+  { href: "/notebook", label: "學習筆記" },
+  { href: "/weaknesses", label: "能力地圖" },
+  { href: "/teacher/dashboard", label: "教師檢視" },
 ];
 
 export function Header() {
   const pathname = usePathname();
   const { isSignedIn, isLoaded } = useAuth();
   const { user } = useUser();
+  const [pendingHref, setPendingHref] = useState<string | null>(null);
   const role = roleFromMetadata(user?.publicMetadata);
   const navItems = role === "admin" ? ADMIN_NAV_ITEMS : role === "teacher" ? TEACHER_NAV_ITEMS : STUDENT_NAV_ITEMS;
+
+  useEffect(() => {
+    setPendingHref(null);
+  }, [pathname]);
+
+  function handleNavClick(event: MouseEvent<HTMLAnchorElement>, href: string, active: boolean) {
+    if (
+      active ||
+      event.defaultPrevented ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey ||
+      event.button !== 0
+    ) {
+      return;
+    }
+
+    setPendingHref(href);
+  }
 
   return (
     <header className="sticky top-0 z-40 border-b border-border/60 bg-paper/80 backdrop-blur-xl">
@@ -66,7 +94,7 @@ export function Header() {
               {navItems.map((item) => {
                 const active =
                   item.href === "/dashboard"
-                    ? pathname === "/dashboard" || pathname.endsWith("/dashboard")
+                    ? pathname === "/dashboard"
                     : item.exact
                       ? pathname === item.href
                       : item.href === "/submissions"
@@ -77,14 +105,20 @@ export function Header() {
                   <Link
                     key={item.href}
                     href={item.href}
+                    aria-current={active ? "page" : undefined}
+                    aria-busy={pendingHref === item.href}
+                    onClick={(event) => handleNavClick(event, item.href, active)}
                     className={[
-                      "rounded-full px-4 py-2 transition",
-                      active
-                        ? "bg-accent text-white shadow-soft"
-                        : "border border-border/70 bg-white/80 text-ink/75 hover:border-accent/30 hover:text-accent",
+                      "nav-pill",
+                      pendingHref === item.href
+                        ? "nav-pill-pending"
+                        : active
+                          ? "nav-pill-active"
+                          : "nav-pill-idle",
                     ].join(" ")}
                   >
-                    {item.label}
+                    {pendingHref === item.href ? <span aria-hidden="true" className="pending-spinner" /> : null}
+                    <span>{pendingHref === item.href ? "載入中…" : item.label}</span>
                   </Link>
                 );
               })}
@@ -94,7 +128,7 @@ export function Header() {
               <UserButton />
             ) : (
               <SignInButton mode="redirect">
-                <button className="rounded-full border border-border/70 bg-white/80 px-4 py-2 text-sm text-ink/75 transition hover:border-accent/30 hover:text-accent">
+                <button className="btn-secondary px-4 py-2">
                   登入
                 </button>
               </SignInButton>

@@ -6,7 +6,7 @@ import { isGlobalUnlimitedCreditsEnabled } from "@/lib/credits";
 export const dynamic = "force-dynamic";
 
 export default async function NewSubmissionPage() {
-  const { appUser } = await requireRole(["student"]);
+  const { appUser } = await requireRole(["student", "admin"]);
   const creditsUnlimited = isGlobalUnlimitedCreditsEnabled() || appUser.unlimitedCredits;
 
   return (

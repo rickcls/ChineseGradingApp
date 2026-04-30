@@ -13,7 +13,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const { appUser: user } = await requireRole(["student"]);
+  const { appUser: user } = await requireRole(["student", "admin"]);
 
   const url = new URL(req.url);
   const submissionId = url.searchParams.get("submissionId")?.trim() || undefined;
@@ -64,7 +64,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const { appUser: user } = await requireRole(["student"]);
+  const { appUser: user } = await requireRole(["student", "admin"]);
 
   const json = await req.json().catch(() => null);
   const parsed = NotebookCreateSchema.safeParse(json);

@@ -26,7 +26,7 @@ const Body = z.object({
 type Body = z.infer<typeof Body>;
 
 export async function POST(req: Request) {
-  const { appUser: user } = await requireRole(["student"]);
+  const { appUser: user } = await requireRole(["student", "admin"]);
   
   const json = await req.json().catch(() => null);
   const parsed = Body.safeParse(json);
@@ -271,7 +271,7 @@ function formatError(err: unknown) {
 }
 
 export async function GET() {
-  const { appUser: user } = await requireRole(["student"]);
+  const { appUser: user } = await requireRole(["student", "admin"]);
   const subs = await prisma.submission.findMany({
     where: { userId: user.id },
     orderBy: { createdAt: "desc" },

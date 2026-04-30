@@ -4,6 +4,7 @@ import { isGlobalUnlimitedCreditsEnabled } from "@/lib/credits";
 import { prisma } from "@/lib/db";
 import { assignStudentToClassAction, createClassAction } from "../actions";
 import { SyncClerkUsersButton } from "@/components/admin/SyncClerkUsersButton";
+import { AdminSubmitButton } from "@/components/admin/AdminSubmitButton";
 
 export const dynamic = "force-dynamic";
 
@@ -97,9 +98,9 @@ export default async function AdminDashboardPage() {
                 ))}
               </select>
             </label>
-            <button type="submit" className="btn-primary">
+            <AdminSubmitButton className="btn-primary" pendingText="建立中...">
               建立班級
-            </button>
+            </AdminSubmitButton>
           </form>
         </div>
 
@@ -133,9 +134,9 @@ export default async function AdminDashboardPage() {
                 ))}
               </select>
             </label>
-            <button type="submit" className="btn-secondary">
+            <AdminSubmitButton className="btn-secondary" pendingText="加入中...">
               加入
-            </button>
+            </AdminSubmitButton>
           </form>
 
           <div className="mt-5 space-y-3">

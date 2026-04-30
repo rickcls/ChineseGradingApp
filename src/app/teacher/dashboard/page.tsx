@@ -5,10 +5,11 @@ import { prisma } from "@/lib/db";
 export const dynamic = "force-dynamic";
 
 export default async function TeacherDashboardPage() {
-  const { clerkUserId } = await requireRole(["teacher"]);
+  const { clerkUserId, role } = await requireRole(["teacher", "admin"]);
+  const isAdmin = role === "admin";
 
   const classes = await prisma.class.findMany({
-    where: { teacherClerkUserId: clerkUserId },
+    where: isAdmin ? undefined : { teacherClerkUserId: clerkUserId },
     orderBy: { createdAt: "desc" },
     include: { studentClasses: true },
   });
@@ -24,7 +25,16 @@ export default async function TeacherDashboardPage() {
       })
     : [];
 
-  const submissions = students.length
+  const submissions = isAdmin
+    ? await prisma.submission.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 30,
+        include: {
+          user: true,
+          analyses: { orderBy: { createdAt: "desc" }, take: 1 },
+        },
+      })
+    : students.length
     ? await prisma.submission.findMany({
         where: { userId: { in: students.map((student) => student.id) } },
         orderBy: { createdAt: "desc" },
@@ -40,9 +50,9 @@ export default async function TeacherDashboardPage() {
     <div className="space-y-8">
       <section className="paper-panel-strong p-6 sm:p-7">
         <p className="section-kicker">老師主頁</p>
-        <h1 className="mt-2 text-3xl sm:text-4xl">查看已分配學生的作品</h1>
+        <h1 className="mt-2 text-3xl sm:text-4xl">{isAdmin ? "查看所有學生的作品" : "查看已分配學生的作品"}</h1>
         <p className="mt-3 max-w-2xl text-sm leading-7 text-ink/75">
-          這裡只會顯示由管理員分配給你的班級、學生與提交紀錄。
+          {isAdmin ? "管理員可以從這裡總覽所有班級、學生與最近提交紀錄。" : "這裡只會顯示由管理員分配給你的班級、學生與提交紀錄。"}
         </p>
       </section>
 
@@ -58,7 +68,7 @@ export default async function TeacherDashboardPage() {
           <h2 className="mt-2 text-2xl">按班級查看</h2>
         </div>
         {classes.length === 0 ? (
-          <div className="paper-panel p-5 text-sm text-muted">尚未有班級分配給你。</div>
+          <div className="paper-panel p-5 text-sm text-muted">{isAdmin ? "尚未建立班級。" : "尚未有班級分配給你。"}</div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
             {classes.map((klass) => (

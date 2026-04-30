@@ -6,7 +6,7 @@ import { NotebookWorkspace } from "@/components/NotebookWorkspace";
 export const dynamic = "force-dynamic";
 
 export default async function NotebookPage() {
-  const { appUser: user } = await requireRole(["student"]);
+  const { appUser: user } = await requireRole(["student", "admin"]);
 
   const [entries, submissions] = await prisma.$transaction([
     prisma.notebookEntry.findMany({

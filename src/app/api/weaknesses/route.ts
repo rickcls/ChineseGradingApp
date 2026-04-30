@@ -5,7 +5,7 @@ import { requireRole } from "@/lib/auth";
 export const runtime = "nodejs";
 
 export async function GET() {
-  const { appUser: user } = await requireRole(["student"]);
+  const { appUser: user } = await requireRole(["student", "admin"]);
   const profiles = await prisma.weaknessProfile.findMany({
     where: { userId: user.id },
     orderBy: [{ status: "asc" }, { severityEwma: "desc" }],

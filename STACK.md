@@ -12,13 +12,14 @@ Three user roles exist: `student`, `teacher`, `admin`. An admin portal lets admi
 
 ## Tech Stack
 
-- Framework: Next.js 14 App Router
+- Framework: Next.js 16 App Router
 - Language: TypeScript
-- UI: React 18, Tailwind CSS
+- UI: React 19, Tailwind CSS
 - Database: PostgreSQL through Prisma
 - ORM: Prisma Client
 - Validation: Zod
 - Authentication: Clerk (`@clerk/nextjs` v7) with role-based access
+- Clerk UI localization: `@clerk/localizations`
 - Webhook verification: `svix` (for Clerk webhooks)
 - AI providers:
   - OpenRouter for most text and vision calls
@@ -27,15 +28,18 @@ Three user roles exist: `student`, `teacher`, `admin`. An admin portal lets admi
   - Vision model OCR for images
   - `pdfjs-dist` on the client to convert uploaded PDFs into page images before OCR
 - Deployment target: Vercel-friendly full-stack Next.js app
+- Runtime: Node.js API routes for AI/OCR work; long-running AI routes set `maxDuration` up to 300 seconds
 
 ## Important Commands
 
 - `npm run dev`: start local Next.js dev server
-- `npm run build`: run `prisma generate` and `next build`
+- `npm run build`: run `prisma generate` and `next build --webpack`
 - `npm run start`: start production server
 - `npm run lint`: run Next lint
 - `npm run db:push`: push Prisma schema to the database
 - `npm run db:seed`: seed rubric/tasks from `prisma/seed.ts`
+- `npm run db:legacy-users`: inspect legacy anonymous users
+- `npm run db:legacy-users:delete-empty`: delete empty legacy anonymous users
 
 The `postinstall` script runs Prisma generation and copies PDF.js assets into `public/`.
 
@@ -55,12 +59,14 @@ Do not hard-code secrets. Expected environment variables include:
 - `NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL`: `/`
 - `CLERK_WEBHOOK_SECRET`: signing secret from the Clerk dashboard webhook config (required for `POST /api/webhooks/clerk`)
 - `ADMIN_CLERK_USER_IDS`: comma-separated Clerk user IDs that are always treated as `admin` regardless of DB role (bootstrap admins)
+- `UAT_UNLIMITED_CREDITS` or `GLOBAL_UNLIMITED_CREDITS`: truthy value (`1`, `true`, `yes`, `on`) makes all users effectively unlimited for submission credits
 
 **AI**
 - `OPENROUTER_API_KEY`: primary AI API key
 - `ANTHROPIC_API_KEY`: optional direct Anthropic fallback
 - `OPENROUTER_HTTP_REFERER`: optional OpenRouter metadata
 - `OPENROUTER_APP_NAME`: optional OpenRouter metadata
+- `FAST_FALLBACK_MODEL`: shared default/fallback model, defaults to `google/gemini-2.5-flash`
 - `ANALYSIS_MODEL`: optional analysis model override
 - `ANALYSIS_FALLBACK_MODEL`: optional analysis fallback override
 - `COACH_MODEL`: coaching model (defaults to `anthropic/claude-3.5-haiku`)
@@ -73,7 +79,7 @@ Do not hard-code secrets. Expected environment variables include:
 
 ## Authentication Model
 
-The app uses **Clerk** for authentication. All routes except `/sign-in`, `/sign-up`, and `/api/webhooks/*` are protected by `clerkMiddleware` in `src/middleware.ts`.
+The app uses **Clerk** for authentication. All routes except `/sign-in`, `/sign-up`, and `/api/webhooks/*` are protected by `clerkMiddleware` in `src/proxy.ts` using Next's proxy entrypoint.
 
 ### User identity flow
 
@@ -101,8 +107,21 @@ Bootstrap admins are set via `ADMIN_CLERK_USER_IDS` env var — those IDs are al
 - `requireRole(roles)`: redirects to `/unauthorized` if current user's role is not in the allowed list
 
 Files:
-- `src/middleware.ts` — Clerk middleware, cookie passthrough, public route list
+- `src/proxy.ts` — Clerk proxy middleware, public route list, auth protection
 - `src/lib/auth.ts` — DB upsert, role sync, bootstrap admin check
+
+## Credits Model
+
+Students receive 3 initial free credits when their Clerk-linked `AppUser` is created or when an older linked user is found without the initial credit grant. Each essay submission costs 1 credit unless either global unlimited credits are enabled or the user has `unlimitedCredits` set in the admin portal.
+
+Credit behavior:
+- `deductCreditForSubmission()` charges before analysis starts.
+- `refundCreditForSubmission()` refunds the credit if analysis fails after charging.
+- `InsufficientCreditsError` returns a 402-style no-credit response from the submission API.
+- All changes are logged in `CreditTransaction`.
+
+Important file:
+- `src/lib/credits.ts`
 
 ## Admin Portal
 
@@ -181,22 +200,24 @@ Primary route: `src/app/api/submissions/route.ts`
 
 1. Client posts text, grade level, optional task prompt, optional genre, and source.
 2. Server validates input with Zod.
-3. Server gets or creates the app user via `getOrCreateAppUser()`.
-4. A `Submission` is created with `verifiedText`.
-5. `analyzeSubmission()` runs the AI rubric analysis.
-6. An `Analysis` row is created.
-7. AI error spans become `ErrorRecord` rows.
-8. Submission status becomes `analyzed`.
-9. `updateWeaknessProfiles()` updates long-term weakness state.
-10. API returns the submission ID.
+3. Server requires `student` or `admin` role and updates the user's grade level if the request changes it.
+4. Server deducts 1 credit unless unlimited credits apply.
+5. A `Submission` is created with `verifiedText`.
+6. `analyzeSubmission()` runs the AI rubric analysis.
+7. An `Analysis` row is created.
+8. AI error spans become `ErrorRecord` rows.
+9. Submission status becomes `analyzed`.
+10. `updateWeaknessProfiles()` updates long-term weakness state.
+11. API returns the submission ID.
 
-If analysis fails after submission creation, the submission is marked `failed`.
+The client normally requests streaming (`stream: true`) and reads server-sent events for progress while the AI analysis runs. If analysis fails after charging, the submission is marked `failed` where possible and the credit is refunded.
 
 Important files:
 - `src/components/SubmissionForm.tsx`
 - `src/app/api/submissions/route.ts`
 - `src/lib/analysis.ts`
 - `src/lib/weakness.ts`
+- `src/lib/credits.ts`
 
 ## AI Analysis Behavior
 
@@ -340,6 +361,8 @@ Important files:
 - Student dashboard with recent submissions and progress metrics
 - Typed writing submission
 - Photo/scan/PDF-to-OCR submission path
+- Streaming submission analysis progress through server-sent events
+- Credit deduction/refund flow with per-user and global unlimited-credit options
 - AI HKDSE-style analysis
 - Rubric scores, DSE level, typo bonus, word count
 - Warm coach feedback
@@ -356,6 +379,7 @@ Important files:
 ## Known Limitations and Extension Points
 
 - Submission analysis is synchronous inside the API route. Long model calls can still hit hosting limits.
+- Vercel function max durations are configured for the main OCR/submission APIs, but a true queue would be safer for heavier usage.
 - OCR uses AI vision models rather than deterministic OCR confidence maps.
 - `FeedbackEvent` exists but there is no full UI flow for usefulness/error reactions yet.
 - `Rubric` exists in the database, but core analysis currently uses local rubric helpers and markdown guide files.
@@ -381,6 +405,7 @@ Important files:
 - Keep character offsets compatible with JavaScript string indexing, as error annotations depend on them.
 - The auth model is now Clerk-based. Do not revert to anonymous cookie-only users. The legacy cookie path is only kept for migrating old anonymous sessions.
 - Role changes must update both `AppUser.role` in Postgres AND `publicMetadata.role` in Clerk — see `updateUserRoleAction` in `src/app/admin/actions.ts` for the correct pattern.
+- Submission credits must be deducted and refunded through `src/lib/credits.ts` so balances and `CreditTransaction` stay consistent.
 - Be careful with Prisma schema changes; update API routes and UI serializers together.
 - Prefer small, local changes over broad rewrites because many flows are connected through submission, analysis, weakness, revision, model passage, and notebook data.
-- The middleware is in `src/middleware.ts` (not `src/proxy.ts` — `proxy.ts` is a stale copy kept for reference).
+- The auth protection entrypoint is `src/proxy.ts`. Do not add a second competing `src/middleware.ts` unless the Next.js version/Clerk guidance is intentionally being changed.

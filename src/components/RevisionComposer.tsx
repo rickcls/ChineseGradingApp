@@ -26,6 +26,7 @@ export function RevisionComposer({
 }: RevisionComposerProps) {
   const [draft, setDraft] = useState(originalText);
   const [submitting, setSubmitting] = useState(false);
+  const [navigatingToCompare, setNavigatingToCompare] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeSuggestionId, setActiveSuggestionId] = useState<string | null>(aiSuggestions[0]?.id ?? null);
   const [activeSupportTool, setActiveSupportTool] = useState<SupportTool>("none");
@@ -109,10 +110,18 @@ export function RevisionComposer({
           {hasExistingRevision ? (
             <button
               type="button"
-              onClick={() => navigateTo(`/submissions/${submissionId}/compare`)}
+              onClick={() => {
+                setNavigatingToCompare(true);
+                navigateTo(`/submissions/${submissionId}/compare`);
+              }}
+              disabled={navigatingToCompare}
+              aria-busy={navigatingToCompare}
               className="btn-secondary"
             >
-              查看最近一次對照
+              <span className="inline-flex items-center gap-2">
+                {navigatingToCompare ? <span aria-hidden="true" className="pending-spinner" /> : null}
+                <span>{navigatingToCompare ? "載入中…" : "查看最近一次對照"}</span>
+              </span>
             </button>
           ) : null}
         </div>
@@ -310,9 +319,13 @@ export function RevisionComposer({
               type="button"
               onClick={submitRevision}
               disabled={submitting || !hasChanged || draft.trim().length < 20}
+              aria-busy={submitting}
               className="btn-primary"
             >
-              {submitting ? "正在整理前後對照…" : "儲存修訂並查看對照"}
+              <span className="inline-flex items-center gap-2">
+                {submitting ? <span aria-hidden="true" className="pending-spinner" /> : null}
+                <span>{submitting ? "正在整理前後對照…" : "儲存修訂並查看對照"}</span>
+              </span>
             </button>
           </div>
         </div>

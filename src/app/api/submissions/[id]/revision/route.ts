@@ -12,7 +12,7 @@ const Body = z.object({
 
 export async function POST(req: Request, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const { appUser: user } = await requireRole(["student"]);
+  const { appUser: user } = await requireRole(["student", "admin"]);
 
   const json = await req.json().catch(() => null);
   const parsed = Body.safeParse(json);

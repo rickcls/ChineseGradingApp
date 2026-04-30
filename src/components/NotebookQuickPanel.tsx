@@ -221,18 +221,26 @@ export function NotebookQuickPanel({
               type="button"
               onClick={generateAiDraft}
               disabled={generating || submitting}
+              aria-busy={generating}
               className="btn-secondary"
             >
-              {generating ? "整理中…" : focusTag ? `AI 整理${focusTag}筆記` : "AI 整理參考筆記"}
+              <span className="inline-flex items-center gap-2">
+                {generating ? <span aria-hidden="true" className="pending-spinner" /> : null}
+                <span>{generating ? "整理中…" : focusTag ? `AI 整理${focusTag}筆記` : "AI 整理參考筆記"}</span>
+              </span>
             </button>
           ) : null}
           <button
             type="button"
             onClick={createManualEntry}
             disabled={submitting || generating || draftContent.trim().length < 2}
+            aria-busy={submitting}
             className="btn-primary"
           >
-            {submitting ? "儲存中…" : "記下這次提醒"}
+            <span className="inline-flex items-center gap-2">
+              {submitting ? <span aria-hidden="true" className="pending-spinner" /> : null}
+              <span>{submitting ? "儲存中…" : "記下這次提醒"}</span>
+            </span>
           </button>
         </div>
       </div>

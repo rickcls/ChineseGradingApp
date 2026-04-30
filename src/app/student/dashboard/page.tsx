@@ -8,7 +8,7 @@ import { StatePanel } from "@/components/StatePanel";
 export const dynamic = "force-dynamic";
 
 export default async function StudentDashboardPage() {
-  const { appUser: user } = await requireRole(["student"]);
+  const { appUser: user } = await requireRole(["student", "admin"]);
   const creditsUnlimited = isGlobalUnlimitedCreditsEnabled() || user.unlimitedCredits;
   const [submissions, submissionStats, totalSubmissionCount, revisionsStarted, confirmed, improving] = await Promise.all([
     prisma.submission.findMany({

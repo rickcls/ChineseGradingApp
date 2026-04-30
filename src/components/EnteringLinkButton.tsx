@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type MouseEvent, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
+import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
 
 type EnteringLinkButtonProps = {
   href: string;
@@ -16,7 +17,12 @@ export function EnteringLinkButton({
   className,
   enteringLabel = "進入中…",
 }: EnteringLinkButtonProps) {
+  const pathname = usePathname();
   const [entering, setEntering] = useState(false);
+
+  useEffect(() => {
+    setEntering(false);
+  }, [pathname]);
 
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {
     if (
@@ -42,10 +48,7 @@ export function EnteringLinkButton({
     >
       {entering ? (
         <>
-          <span
-            aria-hidden="true"
-            className="mr-2 h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent"
-          />
+          <span aria-hidden="true" className="pending-spinner mr-2" />
           {enteringLabel}
         </>
       ) : (

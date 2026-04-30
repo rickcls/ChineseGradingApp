@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 
 export async function PATCH(req: Request, props: { params: Promise<{ entryId: string }> }) {
   const params = await props.params;
-  const { appUser: user } = await requireRole(["student"]);
+  const { appUser: user } = await requireRole(["student", "admin"]);
 
   const existing = await prisma.notebookEntry.findFirst({
     where: { id: params.entryId, userId: user.id },
@@ -61,7 +61,7 @@ export async function PATCH(req: Request, props: { params: Promise<{ entryId: st
 
 export async function DELETE(_req: Request, props: { params: Promise<{ entryId: string }> }) {
   const params = await props.params;
-  const { appUser: user } = await requireRole(["student"]);
+  const { appUser: user } = await requireRole(["student", "admin"]);
 
   const existing = await prisma.notebookEntry.findFirst({
     where: { id: params.entryId, userId: user.id },
