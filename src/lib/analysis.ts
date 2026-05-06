@@ -118,9 +118,9 @@ function buildSystemPrompt(rubric: RubricDef, rubricGuideMarkdown: string): stri
     "- 絕大多數中學生作品落在 Level 2–4 之間。若你打算給 Level 5 或以上，請再問自己一次：這篇是否真的屬於全港前 15% 水平？若有遲疑，降級。",
     "",
     "【錯別字與字數】",
-    `- 建議篇幅 ${RECOMMENDED_WORD_COUNT} 字或以上。字數明顯不足（例如少於 ${RECOMMENDED_WORD_COUNT - 150} 字）會令「內容」難以充實、「結構」難以完整，必須相應扣分。`,
-    "- 錯別字獎勵獨立計算，不可把它混入四項基本分之中；全卷錯別字獎勵為：0–1 個 +3 分、2–4 個 +2 分、5–7 個 +1 分、8 個或以上不加分。",
-    "- 注意：錯別字獎勵只是卷面加成，系統不會讓它推動等級邊界（即 Level 4 + 錯別字獎勵不會變成 Level 5）。等級由基本分決定。",
+    `- 建議篇幅 ${RECOMMENDED_WORD_COUNT} 字或以上。若字數低於 480 字，內容品第不得進入中品（原始分 N≥5），必須相應扣分。`,
+    "- 錯別字扣分獨立計算，不可把它混入四項基本分之中；全卷錯別字扣分為：0–1 個 不扣分、2–4 個 扣1分、5–7 個 扣2分、8 個或以上 扣3分（上限）。",
+    "- 注意：錯別字扣分只影響最終總分，不改變 DSE 等級（等級由基本分決定）。",
     "- 請在輸出中誠實申報 typo_count（全文錯別字數）與 word_count（中文字符數，不含標點與空白）。",
     "",
     "【你要找出的錯誤／批註類型】",
@@ -243,7 +243,7 @@ function buildUserPrompt(input: AnalysisInput): string {
     "2. coach_feedback 開頭提到的等級，是否與 dse_level 完全一致？若不一致，修正文字。",
     "3. 把這篇文章和「典型 Level 3 作文」（內容完整但平淡、表達通順但單一）比較一次——我給的是否合理？",
     "4. 如果我打算給 Level 5 或以上，立意是否真的深刻？表達是否真的精煉？有遲疑就降級。",
-    "5. 如果字數明顯不足 600，內容與結構分是否已相應下調？",
+    "5. 如果字數低於 480，內容原始分是否已在 N≤4（即 16 分）以內？如字數在 480–600 之間，內容與結構分是否已相應下調？",
     "6. 結構的 10 分制等效分數是否高於內容？若高於，請先下調結構分。",
   );
   return parts.join("\n");
@@ -408,10 +408,9 @@ export async function analyzeSubmission(
   ).length;
   const typoCount = modelTypoCount ?? typoFromErrors;
   const bonus = typoBonus(typoCount);
-  // Level is derived from base score only — the typo bonus is a presentation
-  // top-up and must not push a piece across a level boundary. Overall score
-  // still includes the bonus for the 0–103 total shown to the student.
-  const overallScore = Math.min(100 + 3, baseScore + bonus);
+  // Level is derived from base score only — the typo penalty must not shift
+  // the DSE level. Overall score applies the penalty for display (0–100).
+  const overallScore = Math.max(0, Math.min(100, baseScore + bonus));
   const scoreLevel = dseLevelFromScore(baseScore);
   const modelLevel = parseDseLevel(parsedOutput.dse_level);
   // When model's holistic judgment disagrees with the arithmetic, err

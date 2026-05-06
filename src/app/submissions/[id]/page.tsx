@@ -87,7 +87,7 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
   });
   const rubricMax = totalMaxScore(DEFAULT_WRITING_RUBRIC);
   const baseScore = toNumber(scores.base_score, analysis.overallScore);
-  const typoBonus = toNumber(scores.typo_bonus, Math.max(0, analysis.overallScore - baseScore));
+  const typoBonus = toNumber(scores.typo_bonus, analysis.overallScore - baseScore);
   const typoCount = toNumber(scores.typo_count, 0);
   const wordCount = toNumber(scores.word_count, 0);
   const dseLevel: DseLevel =
@@ -145,11 +145,11 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
                 <span className="font-serif text-4xl text-ink">{dseLevel}</span>
                 <span className="text-sm text-ink/70">
                   基本分 {baseScore.toFixed(0)} / {rubricMax}
-                  {typoBonus > 0 ? ` · 錯別字 +${typoBonus}` : ""}
+                  {typoBonus < 0 ? ` · 錯別字 ${typoBonus}` : ""}
                 </span>
               </div>
               <p className="mt-1 text-[0.68rem] text-muted">
-                等級以基本分決定；錯別字獎勵只反映卷面整潔，不影響等級。
+                等級以基本分決定；錯別字扣分不影響等級。
               </p>
               <p className="mt-2 text-xs leading-5 text-muted">{dseLevelNote(dseLevel)}</p>
             </div>

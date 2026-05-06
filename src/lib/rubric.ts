@@ -32,10 +32,10 @@ export const DEFAULT_WRITING_RUBRIC: RubricDef = {
         "感悟與見解：是否展現真切體會、分析能力或較成熟的思考",
       ],
       descriptors: [
-        { band: "上", range: [33, 40], description: "明確扣題，材料充分而有代表性，能展現深度、見解或真切感悟。" },
-        { band: "中上", range: [25, 32], description: "基本扣題，內容具體，材料能支撐主旨，但深度或展開力度仍可提升。" },
-        { band: "中", range: [17, 24], description: "主旨可辨但不夠集中，材料一般或展開不足，內容平穩而不突出。" },
-        { band: "下", range: [0, 16], description: "偏題或內容薄弱，材料空泛、單薄，難以有效支撐主旨。" },
+        { band: "上", range: [33, 40], description: "立意深刻，意象具象徵功能，感悟昇華至哲理或人文層面，選材精當充實（N=8–10）。" },
+        { band: "中上", range: [25, 32], description: "立意尚可，主旨明確，感悟有個人質感但未達哲理，選材恰當（N=6–7）。" },
+        { band: "中", range: [17, 24], description: "主旨大致可見，感悟流於公式化，選材一般或展開不足（N=4–5）。" },
+        { band: "下", range: [0, 16], description: "立意薄弱或偏離，內容空泛，感悟缺失或與敘事脫節（N=1–3）。" },
       ],
     },
     {
@@ -49,10 +49,10 @@ export const DEFAULT_WRITING_RUBRIC: RubricDef = {
         "修辭與風格：修辭是否恰當，是否有助提升感染力而非堆砌",
       ],
       descriptors: [
-        { band: "上", range: [25, 30], description: "用詞準確，句式靈活，修辭自然，整體文氣成熟而有感染力。" },
-        { band: "中上", range: [19, 24], description: "基本達意且通順，偶有句式變化與恰當修辭，但文采仍未穩定。" },
-        { band: "中", range: [13, 18], description: "大致可讀，但較平直單調，偶有生硬或輕微語病。" },
-        { band: "下", range: [0, 12], description: "語病較多，句子欠順或殘缺，詞語運用薄弱，影響整體理解。" },
+        { band: "上", range: [25, 30], description: "文筆成熟，風格突出，修辭自然有力，文氣成熟而有感染力（N=8–10）。" },
+        { band: "中上", range: [19, 24], description: "遣詞達意，句式偶有變化，基本修辭運用適當，行文通順（N=6–7）。" },
+        { band: "中", range: [13, 18], description: "大致可讀，較平直，偶有生硬或輕微語病（N=4–5）。" },
+        { band: "下", range: [0, 12], description: "病句較多，詞語貧乏，嚴重影響理解（N=1–3）。" },
       ],
     },
     {
@@ -66,10 +66,10 @@ export const DEFAULT_WRITING_RUBRIC: RubricDef = {
         "過渡與銜接：前後脈絡是否連貫，段落之間是否自然承接",
       ],
       descriptors: [
-        { band: "上", range: [17, 20], description: "佈局完整，層次清楚，段落安排得宜，過渡自然。" },
-        { band: "中上", range: [13, 16], description: "文章大致成篇，條理尚清，但局部安排或銜接仍可更緊密。" },
-        { band: "中", range: [9, 12], description: "結構可辨但較鬆散，段落失衡或前後脈絡不夠清楚。" },
-        { band: "下", range: [0, 8], description: "脈絡混亂或幾乎不成篇，缺乏基本章法與清楚主線。" },
+        { band: "上", range: [17, 20], description: "佈局完整，敘事張力強，過渡自然，首尾呼應（N=8–10）。" },
+        { band: "中上", range: [13, 16], description: "佈局大致完整，條理尚清，個別銜接稍弱（N=6–7）。" },
+        { band: "中", range: [9, 12], description: "結構大致尚存，略顯鬆散，段落銜接不順（N=4–5）。" },
+        { band: "下", range: [0, 8], description: "結構混亂或幾乎不成章法，缺乏過渡（N=1–3）。" },
       ],
     },
     {
@@ -158,13 +158,13 @@ export function dseLevelNote(level: DseLevel): string {
   return DSE_LEVEL_BANDS.find((b) => b.level === level)?.note || "";
 }
 
-// 錯別字獎勵（以全卷總計）
-// 0–1: +3；2–4: +2；5–7: +1；8+: 不加分
+// 錯別字扣分（V7：以全卷總計）
+// 0–1: 不扣分；2–4: -1；5–7: -2；8+: -3
 export function typoBonus(typoCount: number): number {
-  if (typoCount <= 1) return 3;
-  if (typoCount <= 4) return 2;
-  if (typoCount <= 7) return 1;
-  return 0;
+  if (typoCount <= 1) return 0;
+  if (typoCount <= 4) return -1;
+  if (typoCount <= 7) return -2;
+  return -3;
 }
 
 export const RECOMMENDED_WORD_COUNT = 600;
