@@ -21,7 +21,7 @@ import {
 import { loadRubricGuideMarkdown } from "./rubricGuide";
 import { TAXONOMY, taxonomyAsMarkdown, validCategory } from "./taxonomy";
 
-export const PROMPT_VERSION = "v5-2026-04-enriched-revision-suggestions";
+export const PROMPT_VERSION = "v10-2026-05-dse-potential-bands";
 const ANALYSIS_TIMEOUT_MS = parsePositiveInt(process.env.ANALYSIS_OPENROUTER_TIMEOUT_MS, 90000);
 
 const ErrorItem = z.object({
@@ -90,12 +90,12 @@ function buildSystemPrompt(rubric: RubricDef, rubricGuideMarkdown: string): stri
     "你是香港中學文憑試（HKDSE）中國語文科卷二「命題寫作」的資深閱卷員。你同時要像一位溫和、具體、以學生為本的中文寫作導師，用鼓勵的口吻把評分理由與改善建議告訴學生。",
     "【最重要的評分原則：嚴格依照 HKDSE 尺度】",
     "- 真實水平分佈：大部分考生落在 Level 2–3；Level 4 屬於良好；Level 5 只佔約全港前 10–15%；5* 約前 4%；5** 僅約前 1%。",
-    "- 只有三項全部成立才可考慮 Level 5 以上：(1) 立意深刻或具啟發性；(2) 選材剪裁恰當且具代表性；(3) 表達精煉，修辭靈活，有個人風格。缺一項就該降到 Level 4 或以下。",
+    "- 只有三項全部成立才可考慮 Level 5 以上：(1) 內容與感悟達 N=8 或以上；(2) 結構完整而不公式化；(3) 表達準確、有文采或有靈光一閃。缺一項就該降到 Level 4 或以下。",
     "- 預設取態：保守、嚴格。寧可低評半級也不可高評。",
     "",
     "【評分流程——務必依此順序進行】",
     "第 1 步（整體判斷）：先閱讀全文一次，形成整體印象，並從 U / 1 / 2 / 3 / 4 / 5 / 5* / 5** 中選出整體等級 dse_level。",
-    "第 2 步（分項填分）：按第 1 步選定的等級，分別填出四項分數。四項分數必須落在該等級對應的總分區間內（見下表）。",
+    "第 2 步（分項填分）：先以 V10 的 N=1–10 評定內容、表達、結構、標點與字體，再換算為 content=N×4、expression=N×3、structure=N×2、punctuation=N×1。",
     "第 3 步（自我檢核）：確認 coach_feedback 中提及的等級、dse_level、以及四項分數之和，三者必須互相吻合。若有不一致，降級而非升級。",
     "",
     "【現行評分細則全文】",
@@ -105,22 +105,23 @@ function buildSystemPrompt(rubric: RubricDef, rubricGuideMarkdown: string): stri
     "【結構化評分簡表（便於對應輸出欄位）】",
     rubricAsMarkdown(rubric),
     "",
-    "【整體等級 ↔ 總分對照表（基本分，未含錯別字獎勵）】",
+    "【整體等級 ↔ 總分對照表（扣除錯別字後的最終總分）】",
     buildLevelAnchorTable(),
     "",
     "【分項錨點：各項得分對應等級】",
     buildPerCriterionAnchorTable(rubric),
     "",
     "【典型水平參考】",
-    "- 內容完整、敘事順暢但情感描寫一般、立意平實、表達通順但無突出文采 → Level 3（總分約 50–59）。這是中六學生最常見的中位水平。",
-    "- 內容具體有代表性、結構完整、偶有佳句但整體未達精煉 → Level 4（總分約 66–79）。",
-    "- 內容立意有深度、結構緊湊、語言有個人風格與文采 → Level 5（總分約 80–87）。",
-    "- 絕大多數中學生作品落在 Level 2–4 之間。若你打算給 Level 5 或以上，請再問自己一次：這篇是否真的屬於全港前 15% 水平？若有遲疑，降級。",
+    "- N=7 左右：表現穩健，通常是 Level 4 穩，只有明顯亮點才觸摸 Level 5 門檻。",
+    "- N=6 左右：大路文章，基本達標但 Level 4 封頂，不能評為 Level 5。",
+    "- N=5 左右：單薄平庸，通常 Level 3 穩，未犯大錯才可碰 Level 4 邊緣。",
+    "- N=4 或以下：偏題、語病、結構或標點短板已形成封頂，不可上 Level 4。",
+    "- 絕大多數中學生作品落在 Level 2–4 之間。若你打算給 Level 5 或以上，請再問自己一次：這篇是否真的有 N=8 以上的內容深度與組織水準？若有遲疑，降級。",
     "",
     "【錯別字與字數】",
     `- 建議篇幅 ${RECOMMENDED_WORD_COUNT} 字或以上。若字數低於 480 字，內容品第不得進入中品（原始分 N≥5），必須相應扣分。`,
     "- 錯別字扣分獨立計算，不可把它混入四項基本分之中；全卷錯別字扣分為：0–1 個 不扣分、2–4 個 扣1分、5–7 個 扣2分、8 個或以上 扣3分（上限）。",
-    "- 注意：錯別字扣分只影響最終總分，不改變 DSE 等級（等級由基本分決定）。",
+    "- 注意：錯別字扣分會影響最終總分；若總分跌穿等級邊界，DSE 等級也應相應下調。",
     "- 請在輸出中誠實申報 typo_count（全文錯別字數）與 word_count（中文字符數，不含標點與空白）。",
     "",
     "【你要找出的錯誤／批註類型】",
@@ -135,12 +136,12 @@ function buildSystemPrompt(rubric: RubricDef, rubricGuideMarkdown: string): stri
     "",
     "【改進建議 revision_priorities 的詳細規格——最重要】",
     "- 要詳盡：把文章中所有明顯可改進之處都列出來（至少 3 項，最多 8 項），按對升級影響力排序，最關鍵的在最前。不要只列 1–2 項。",
-    "- 範圍不應只集中在「內容」——要覆蓋內容／表達／結構／標點四個面向中凡有實際改進空間的部分。",
+    "- 範圍不應只集中在「內容」——要覆蓋內容／表達／結構／標點與字體四個面向中凡有實際改進空間的部分。",
     "- 但排序上要優先幫學生『把內容寫得更充實、更有層次』：若本文的主要弱點在內容、結構、情感深度、選材、論述展開，排在前 4 項的建議不可大多只是錯字、字詞或標點。",
     "- 若內容或結構仍有明顯進步空間，前 4 項至少 2 項必須是內容／結構層次的建議，並示範如何補細節、補感受、補主旨句、補過渡句或補結尾昇華句。",
     "- revision_priorities 不是錯誤清單的改寫版本；它的任務是提供『更高層次、可直接模仿的升級示範』，尤其幫學生充實內容，而不只是改字眼。",
     "- 每一項必須包含以下完整結構：",
-    "    · focus：建議屬於哪一項評分面向（內容 / 表達 / 結構 / 標點）",
+    "    · focus：建議屬於哪一項評分面向（內容 / 表達 / 結構 / 標點與字體）",
     "    · issue：一句話指出問題所在",
     "    · why：1–2 句說明為何此問題令作品停留在目前 DSE 等級；改善後能帶來甚麼升級效果",
     "    · how：3–5 個可直接執行的步驟（不是空泛口號；每步要讓學生讀完就知道下一步動作是甚麼）",
@@ -174,13 +175,7 @@ function buildPerCriterionAnchorTable(rubric: RubricDef): string {
     .map((c) => {
       const bands = c.descriptors
         .map((d) => {
-          const mappedLevel = (() => {
-            if (d.band === "上") return "Level 5 / 5* / 5**";
-            if (d.band === "中上") return "Level 4";
-            if (d.band === "中") return "Level 3";
-            return "Level 1 / 2 / U";
-          })();
-          return `    · ${d.range[0]}–${d.range[1]} 分（${d.band}）→ ${mappedLevel}`;
+          return `    · ${d.range[0]}–${d.range[1]} 分（${d.band}）：${d.description}`;
         })
         .join("\n");
       return `- **${c.label}**（滿分 ${c.maxScore}）：\n${bands}`;
@@ -214,7 +209,7 @@ function buildUserPrompt(input: AnalysisInput): string {
     '  "strengths": ["3–5 項具體亮點，每項一句"],',
     '  "revision_priorities": [',
     '    {',
-    '      "focus": "內容 | 表達 | 結構 | 標點",',
+    '      "focus": "內容 | 表達 | 結構 | 標點與字體",',
     '      "issue": "一句話點出問題",',
     '      "why": "1–2 句說明為何此問題令作品停在目前等級，以及改善後能帶來甚麼升級效果",',
     '      "how": ["可執行步驟 1", "步驟 2", "步驟 3"],',
@@ -239,12 +234,13 @@ function buildUserPrompt(input: AnalysisInput): string {
     "}",
     "",
     "自我檢核（輸出前必做）：",
-    "1. 分項分數之和是否落在 dse_level 對應的總分區間內？若不在，調整分項分數或調整 dse_level。",
+    "1. 分項分數之和扣除錯別字後，是否落在 dse_level 對應的總分區間內？若不在，調整分項分數或調整 dse_level。",
     "2. coach_feedback 開頭提到的等級，是否與 dse_level 完全一致？若不一致，修正文字。",
     "3. 把這篇文章和「典型 Level 3 作文」（內容完整但平淡、表達通順但單一）比較一次——我給的是否合理？",
     "4. 如果我打算給 Level 5 或以上，立意是否真的深刻？表達是否真的精煉？有遲疑就降級。",
     "5. 如果字數低於 480，內容原始分是否已在 N≤4（即 16 分）以內？如字數在 480–600 之間，內容與結構分是否已相應下調？",
     "6. 結構的 10 分制等效分數是否高於內容？若高於，請先下調結構分。",
+    "7. 是否存在 N≤6 的短板？若有，必須啟動封頂機制，並在評語中指出等級上限。",
   );
   return parts.join("\n");
 }
@@ -386,17 +382,17 @@ export async function analyzeSubmission(
     const safe = Number.isFinite(raw) ? raw : 0;
     clampedScores[criterion.key] = Math.max(0, Math.min(criterion.maxScore, Math.round(safe)));
   }
+  const fallbackWordCount = countChineseChars(input.text);
+  const wordCount = Number.isFinite(parsedOutput.word_count as number)
+    ? Number(parsedOutput.word_count)
+    : fallbackWordCount;
+  enforceWordCountContentCap(clampedScores, rubric, wordCount);
   enforceStructureNotAboveContent(clampedScores, rubric);
 
   const baseScore = Object.values(clampedScores).reduce((a, b) => a + b, 0);
   const modelTypoCount = Number.isFinite(parsedOutput.typo_count as number)
     ? Number(parsedOutput.typo_count)
     : undefined;
-  const fallbackWordCount = countChineseChars(input.text);
-  const wordCount = Number.isFinite(parsedOutput.word_count as number)
-    ? Number(parsedOutput.word_count)
-    : fallbackWordCount;
-
   // Prefer declared typo count; otherwise approximate from flagged 錯別字／形近字／同音字 errors.
   const parsedErrorsRaw = parsedOutput.errors
     .map((item) => ErrorItem.safeParse(normalizeErrorItem(item)))
@@ -408,10 +404,8 @@ export async function analyzeSubmission(
   ).length;
   const typoCount = modelTypoCount ?? typoFromErrors;
   const bonus = typoBonus(typoCount);
-  // Level is derived from base score only — the typo penalty must not shift
-  // the DSE level. Overall score applies the penalty for display (0–100).
   const overallScore = Math.max(0, Math.min(100, baseScore + bonus));
-  const scoreLevel = dseLevelFromScore(baseScore);
+  const scoreLevel = applyShortBoardLevelCap(dseLevelFromScore(overallScore), clampedScores, rubric);
   const modelLevel = parseDseLevel(parsedOutput.dse_level);
   // When model's holistic judgment disagrees with the arithmetic, err
   // conservative: take the lower of the two. Holistic narratives are
@@ -535,7 +529,7 @@ function normalizeCriterionFocus(value: unknown): string | undefined {
   if (["內容", "content"].includes(normalized)) return "內容";
   if (["表達", "expression"].includes(normalized)) return "表達";
   if (["結構", "structure"].includes(normalized)) return "結構";
-  if (["標點", "標點字體", "punctuation"].includes(normalized)) return "標點";
+  if (["標點", "標點字體", "標點與字體", "punctuation"].includes(normalized)) return "標點與字體";
   return text;
 }
 
@@ -558,6 +552,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+function enforceWordCountContentCap(scores: Record<string, number>, rubric: RubricDef, wordCount: number) {
+  if (wordCount >= 480) return;
+  const content = rubric.criteria.find((criterion) => criterion.key === "content");
+  if (!content) return;
+
+  // V10 killer criterion: below 480 Chinese characters, content cannot enter
+  // 中品 (N>=5), so cap content at N=4.
+  const maxContent = Math.floor((4 / 10) * content.maxScore);
+  scores[content.key] = Math.min(scores[content.key], maxContent);
+}
+
 function enforceStructureNotAboveContent(scores: Record<string, number>, rubric: RubricDef) {
   const content = rubric.criteria.find((criterion) => criterion.key === "content");
   const structure = rubric.criteria.find((criterion) => criterion.key === "structure");
@@ -571,6 +576,27 @@ function enforceStructureNotAboveContent(scores: Record<string, number>, rubric:
   if (structureScore > maxStructureFromContent) {
     scores[structure.key] = Math.max(0, Math.min(structure.maxScore, maxStructureFromContent));
   }
+}
+
+function applyShortBoardLevelCap(
+  level: DseLevel,
+  scores: Record<string, number>,
+  rubric: RubricDef,
+): DseLevel {
+  let cap: DseLevel = "5**";
+
+  for (const criterion of rubric.criteria) {
+    const raw = scores[criterion.key];
+    if (!Number.isFinite(raw)) continue;
+
+    const nScore = (raw / criterion.maxScore) * 10;
+    if (nScore <= 1) cap = minDseLevel(cap, "U");
+    else if (nScore <= 2) cap = minDseLevel(cap, "1");
+    else if (nScore <= 4) cap = minDseLevel(cap, "3");
+    else if (nScore <= 6) cap = minDseLevel(cap, "4");
+  }
+
+  return minDseLevel(level, cap);
 }
 
 // LLMs cannot reliably count UTF-16 offsets in long Chinese text, so trust the
