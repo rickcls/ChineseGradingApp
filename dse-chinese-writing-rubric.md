@@ -1,7 +1,3 @@
-from weasyprint import HTML
-
-# Content extracted from the provided text for MD formatting
-md_content = """
 # DSE 中文命題寫作評分標準 (V10 與 V11 整合修訂版)
 
 ## 一、 評分計算方式
