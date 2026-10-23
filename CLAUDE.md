@@ -99,6 +99,7 @@ prisma/
   schema.prisma                      — All DB models
   migrations/                        — Postgres migration history
 scripts/
+  migrate-deploy.ts                  — Vercel production build step: migrate deploy, baselining a db-push-created or empty database
   eval-grading.ts                    — npm run eval:grading: grade gold essays N times, report agreement with teachers
   export-teacher-reviews.ts          — npm run eval:export-reviews: export teacher reviews as gold essays
 eval/
@@ -342,6 +343,12 @@ Six top-level categories, each with subcategories:
 | Reading practice: passage + comprehension questions | No |
 | Assignment mode (teacher assigns tasks to class) | Class model exists, no assignment flow |
 | Parent views | No |
+
+---
+
+## Deploying (Vercel)
+
+`vercel.json`'s `buildCommand` is `prisma generate && node --import tsx scripts/migrate-deploy.ts && next build`. On production builds (`VERCEL_ENV=production`; previews skip it) the script runs `prisma migrate deploy`. If the database has no migration history (P3005, it was created with `db push`) it marks `20260428000000_role_credit_system` and `20260429000000_unlimited_credits` as applied when `AppUser.unlimitedCredits` exists, or every migration when the database already matches the schema, then deploys the rest. An empty database is created with `db push` and every migration is marked as applied, because the migration history starts from an existing schema. Any failure stops the build, so code never ships without its schema. Every schema change therefore needs a migration folder (generate it with `prisma migrate diff --from-schema-datamodel <previous schema> --to-schema-datamodel prisma/schema.prisma --script`).
 
 ---
 

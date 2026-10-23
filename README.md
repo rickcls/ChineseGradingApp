@@ -60,17 +60,17 @@ Recommended low-cost defaults:
 - `ANALYSIS_MODEL=google/gemini-2.5-flash`
 - `COACH_MODEL=anthropic/claude-3.5-haiku`
 
-### 4. Create the database schema
+### 4. Database schema (automatic)
 
-After the first deploy, run from your local machine **once**:
+Every **production** deploy runs `scripts/migrate-deploy.ts` before `next build` (see `buildCommand` in `vercel.json`); preview deploys skip it. The script:
 
-```bash
-npm install
-npx prisma db push          # uses DATABASE_URL from .env / shell
-npm run db:seed             # optional — seeds rubric + 3 sample writing tasks
-```
+- applies pending migrations in `prisma/migrations` with `prisma migrate deploy`;
+- creates an empty database straight from `prisma/schema.prisma` (`db push`) and records every migration as applied;
+- baselines a database first created with `prisma db push` (error P3005): migrations whose changes are already there are marked as applied, then the rest are applied.
 
-Or add a one-off deploy hook / run this from Vercel's CLI. `prisma generate` runs automatically on build via `postinstall` and the `build` script.
+If it fails, the build stops and the previous deployment stays live; the build log says why. Schema changes therefore need a migration folder in `prisma/migrations`, not just `db push`. If `DATABASE_URL` goes through a transaction pooler (e.g. Supabase port 6543 / pgbouncer), migrations need a direct connection: add `directUrl = env("DIRECT_URL")` to the datasource and set `DIRECT_URL`.
+
+To run it by hand against the database in your shell: `node --import tsx scripts/migrate-deploy.ts --force`. Optional sample data: `npm run db:seed` (seeds rubric + 3 sample writing tasks).
 
 ### 5. Visit your deployed URL
 
