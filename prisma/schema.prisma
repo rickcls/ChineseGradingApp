@@ -30,6 +30,7 @@ model AppUser {
   notebookEntries   NotebookEntry[]
   teacherReviews    TeacherReview[]
   topicAnalyses     TopicAnalysis[]
+  practiceDrills    PracticeDrill[]
 
   @@map("AppUser")
 }
@@ -207,6 +208,25 @@ model TopicAnalysis {
   @@index([userId, createdAt])
 }
 
+// 150-字 micro-drill generated from a weakness (category, subcategory).
+// Practice only: it never changes weakness profiles.
+model PracticeDrill {
+  id           String    @id @default(cuid())
+  userId       String
+  category     String
+  subcategory  String
+  task         Json
+  response     String?   @db.Text
+  feedback     Json?
+  attempts     Int       @default(0)
+  createdAt    DateTime  @default(now())
+  completedAt  DateTime?
+
+  user  AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
 enum WeaknessStatus {
   watching
   confirmed
@@ -240,6 +260,7 @@ model RevisionSession {
   revisedText            String   @db.Text
   targetedErrorIds       String[]
   improvementDelta       Json?
+  regrade                Json?    // re-grade of revisedText (src/lib/regradeCompare.ts); kept off Submission so it never feeds weakness tracking
   createdAt              DateTime @default(now())
 
   user                AppUser     @relation(fields: [userId], references: [id], onDelete: Cascade)

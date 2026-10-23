@@ -2,15 +2,19 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireRole } from "@/lib/auth";
+import { RegradePanel } from "@/components/RegradePanel";
 import { RevisionComparison } from "@/components/RevisionComparison";
 import { StatePanel } from "@/components/StatePanel";
+import { isGlobalUnlimitedCreditsEnabled } from "@/lib/credits";
 import { serializeModelPassage } from "@/lib/modelPassage";
 import { serializeNotebookEntry } from "@/lib/notebook";
 import { normalizeRevisionPriorities } from "@/lib/revisionPriority";
+import { compareGrades, readRegrade, snapshotFromAnalysis } from "@/lib/regradeCompare";
 import {
   buildRemainingRevisionSuggestions,
   includesNormalized,
 } from "@/lib/revisionSuggestions";
+import { countsTowardWeakness } from "@/lib/weakness";
 
 export const dynamic = "force-dynamic";
 
@@ -89,6 +93,27 @@ export default async function SubmissionComparePage(props: { params: Promise<{ i
     revisedText: revision.revisedText,
   });
 
+  // The original grade counts only errors that also count for weakness
+  // tracking (no OCR misreads, nothing the student reported as wrong).
+  const regrade = readRegrade(revision.regrade);
+  const comparison =
+    regrade && analysis
+      ? compareGrades(
+          snapshotFromAnalysis(
+            analysis,
+            submission.errors.filter(countsTowardWeakness).map((error) => ({
+              category: error.category,
+              subcategory: error.subcategory,
+              evidenceSpan: error.evidenceSpan,
+              suggestion: error.suggestion,
+              severity: error.severity,
+            })),
+          ),
+          regrade,
+        )
+      : null;
+  const unlimitedCredits = isGlobalUnlimitedCreditsEnabled() || user.unlimitedCredits;
+
   return (
     <div className="space-y-6">
       <Link href={`/submissions/${submission.id}`} className="btn-secondary inline-flex">
@@ -110,6 +135,18 @@ export default async function SubmissionComparePage(props: { params: Promise<{ i
         remainingAiSuggestions={remainingAiSuggestions}
         initialModelPassage={submission.aiModelPassage ? serializeModelPassage(submission.aiModelPassage) : null}
         recentNotebookEntries={recentNotebookEntries.map(serializeNotebookEntry)}
+        regradeSlot={
+          <RegradePanel
+            submissionId={submission.id}
+            comparison={comparison}
+            result={
+              regrade ? { coachFeedback: regrade.coachFeedback, priorities: regrade.priorities, gradedAt: regrade.gradedAt } : null
+            }
+            canRegrade={Boolean(analysis) && !regrade}
+            creditsLabel={unlimitedCredits ? "你有無限點數" : `目前餘額 ${user.credits} 點`}
+            hasCredits={unlimitedCredits || user.credits > 0}
+          />
+        }
       />
     </div>
   );

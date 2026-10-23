@@ -23,6 +23,8 @@ type RevisionComparisonProps = {
   remainingAiSuggestions: RevisionSuggestionCard[];
   initialModelPassage: StoredModelPassage | null;
   recentNotebookEntries: NotebookEntrySummary[];
+  // Re-grade panel, rendered under the header.
+  regradeSlot?: React.ReactNode;
 };
 
 export function RevisionComparison({
@@ -40,6 +42,7 @@ export function RevisionComparison({
   remainingAiSuggestions,
   initialModelPassage,
   recentNotebookEntries,
+  regradeSlot,
 }: RevisionComparisonProps) {
   const [notebookEntries, setNotebookEntries] = useState(recentNotebookEntries);
   const delta = afterChars - beforeChars;
@@ -61,7 +64,7 @@ export function RevisionComparison({
             <div>
               <h1 className="text-3xl">這次修改，哪裡已經更清楚了？</h1>
               <p className="mt-2 max-w-2xl text-sm leading-7 text-ink/75">
-                這裡不是重新打分，而是幫你看見自己已經動手調整的地方。一次改好一兩項，已經很有價值。
+                先看看自己已經動手調整的地方；想知道等級有沒有變化，可以用下面的「重新評分」。一次改好一兩項，已經很有價值。
               </p>
             </div>
           </div>
@@ -75,6 +78,8 @@ export function RevisionComparison({
           </div>
         </div>
       </section>
+
+      {regradeSlot}
 
       <section className="grid gap-4 md:grid-cols-2">
         <div className="paper-panel p-5">

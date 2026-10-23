@@ -69,7 +69,7 @@ export async function removeCreditsFromUser(targetClerkUserId: string, amount: n
   });
 }
 
-export async function deductCreditForSubmission() {
+export async function deductCreditForSubmission(reason = "essay_submission") {
   const { clerkUserId } = await requireRole(["student", "admin"]);
 
   return prisma.$transaction(async (tx) => {
@@ -94,7 +94,7 @@ export async function deductCreditForSubmission() {
       data: {
         clerkUserId,
         amount: -1,
-        reason: "essay_submission",
+        reason,
         createdByClerkUserId: clerkUserId,
       },
     });
