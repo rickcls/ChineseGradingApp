@@ -32,6 +32,8 @@ src/
     credits.ts                       — Credit ledger: deduct, refund, unlimited flags, audit trail
     ocr.ts                           — Vision model invocation for photo/scan input modes (verbatim transcription, no auto-correct)
     ocrSuspect.ts                    — Flags errors that may be OCR misreads (□ placeholders, typos in untouched OCR text)
+    teacherReview.ts                 — Teacher access scope (students in the teacher's classes) + teacher review validation
+    calibration.ts                   — AI-vs-teacher calibration metrics (agreement, bias, weighted kappa, run-to-run stability)
     notebook.ts                      — Learning note serialization (manual/phrase/lesson types)
     modelPassage.ts                  — AI-generated model essay management
     revisionSuggestions.ts           — Workbench suggestion prioritization (top 5 + top 2 errors)
@@ -51,6 +53,8 @@ src/
       submissions/[id]/revision/route.ts      — POST: save revision session
       submissions/[id]/model-passage/route.ts — POST: generate/update model essay
       submissions/[id]/notebook-note/route.ts — POST: create learning note from submission
+      submissions/[id]/errors/[errorId]/feedback/route.ts — POST: student reaction to an annotation (helpful/wrong/confusing)
+      teacher/submissions/[id]/review/route.ts — POST: teacher's own scores/level/comment (upsert per teacher)
       notebook/route.ts              — POST: standalone notebook entry
       notebook/[entryId]/route.ts    — GET: fetch notebook entry
       ocr/route.ts                   — POST: OCR image → text
@@ -59,10 +63,11 @@ src/
   components/
     Header.tsx                       — Top nav
     CoachCard.tsx                    — Feedback container with tone variants
-    AnnotatedText.tsx                — Client: essay with inline <mark> highlights + detail panel
+    AnnotatedText.tsx                — Client: essay with inline <mark> highlights + detail panel + 有幫助／批改有錯／看不明白 buttons
     SubmissionForm.tsx               — Client: multi-mode input with SSE progress streaming
     RevisionComposer.tsx             — Side-by-side revision editor with AI suggestions
     ModelPassagePanel.tsx            — AI model essay viewer
+    TeacherReviewForm.tsx            — Client: teacher score/level/comment form on the teacher submission page
     NotebookWorkspace.tsx / NotebookQuickPanel.tsx — Note-taking UI
     admin/
       UserDirectory.tsx              — User list with role/credit columns
@@ -73,6 +78,11 @@ src/
 prisma/
   schema.prisma                      — All DB models
   migrations/                        — Postgres migration history
+scripts/
+  eval-grading.ts                    — npm run eval:grading: grade gold essays N times, report agreement with teachers
+  export-teacher-reviews.ts          — npm run eval:export-reviews: export teacher reviews as gold essays
+eval/
+  README.md                          — Gold essay format and how to read the calibration report (eval/gold, eval/results are git-ignored)
 ```
 
 ---
@@ -84,7 +94,7 @@ prisma/
 | `AppUser` | One row per Clerk user. Has `role` (student/teacher/admin), `credits`, `unlimitedCredits`, `gradeLevel`, `displayName`. |
 | `Submission` | `rawText` (untouched OCR transcript for photo/scan, else same as typed text), `verifiedText` (what was graded), source mode (typed/photo/scan), `taskPrompt` (題目), `genre` (文體, null = model decides), status enum (uploaded/verified/analyzed/failed), OCR fields. |
 | `Analysis` | HKDSE rubric scores (JSON), DSE level, overall score, model name, coach feedback, strengths, revision priorities. |
-| `ErrorRecord` | Per-error row: category, subcategory, evidence span, char offsets, suggestion, severity 1–3, `ocrSuspect` flag. |
+| `ErrorRecord` | Per-error row: category, subcategory, evidence span, char offsets, suggestion, severity 1–3, `ocrSuspect` flag, `studentReaction` (latest helpful/wrong/confusing). |
 | `WeaknessProfile` | Per `(user, category, subcategory)`: EWMA severity, evidence count, 10-submission rolling window (JSON), status enum. |
 | `RevisionSession` | Revision workspace: revised text, target error IDs, improvement delta. |
 | `NotebookEntry` | Student learning notes: type (manual/phrase/lesson), content, linked submission. |
@@ -92,7 +102,8 @@ prisma/
 | `CreditTransaction` | Audit trail for all credit changes (deduction, refund, admin grant) with attribution. |
 | `Class` / `StudentClass` | Teacher class management + student enrolment. |
 | `WritingTask` | Writing prompts with grade, genre, guidance, suggested length. |
-| `FeedbackEvent` | Student reactions to specific errors (helpful/wrong/confusing) — for prompt tuning. |
+| `FeedbackEvent` | Append-only log of student reactions to errors (helpful/wrong/confusing/cleared) — for prompt tuning. |
+| `TeacherReview` | A teacher's own marking of an analysis: scores, typo count, DSE level, comment. One per (analysis, teacher). Shown to the student; exported as calibration gold data. |
 
 The `ocrSuspect` column on `ErrorRecord` is the OCR safety rail, set in `persistAnalysis` via `buildOcrSuspectChecker` (`src/lib/ocrSuspect.ts`). Vision-model OCR gives no per-character confidence, so an error is suspect when its span overlaps an unresolved `□`, or when it is a 錯別字/形近字/同音字 error on characters the student left exactly as the OCR produced them (characters the student retyped during verification are trusted). Suspect errors are labelled "OCR 可能讀錯" in the UI and excluded from weakness aggregation.
 
@@ -183,7 +194,7 @@ Called after every analysis.
 | `improving` | Last 2 submissions show ≥ 50% reduction in error count vs. prior 2. |
 | `resolved` | Last 3 consecutive submissions show zero errors in the category. |
 
-Excluded from aggregation: `ocrSuspect = true` errors. (Excluding student-flagged errors via `FeedbackEvent` is planned; there is no UI for it yet.)
+Excluded from aggregation (`countsTowardWeakness`): `ocrSuspect = true` errors and errors whose `studentReaction` is `"wrong"`. When a student flags or unflags an error after grading, `resyncErrorWeakness` recounts that submission's contribution to the one affected profile from its `ErrorRecord`s (the EWMA is left unchanged).
 
 ---
 
@@ -235,6 +246,10 @@ Six top-level categories, each with subcategories:
 ### Teacher Dashboard (`/teacher/dashboard`)
 - Class list, recent submissions across all students in teacher's classes.
 
+### Teacher Submission (`/teacher/submissions/[id]`)
+- Essay, AI feedback and annotations (with "學生回報有誤" / "OCR 可能讀錯" markers).
+- 「老師覆核」 form: four scores, typo count, level (with the score-derived level as a hint) and a comment. The student sees it at the top of their submission page, and it overrides the AI estimate for them.
+
 ### Admin Dashboard (`/admin/dashboard`)
 - User directory with role/credit columns, credit adjustment, unlimited credit toggle, Clerk user sync.
 - Class creation and student enrolment.
@@ -252,7 +267,7 @@ Six top-level categories, each with subcategories:
 | 1. 評語 | Coach feedback text, strengths, revision priorities |
 | 2. 準則 | 4-criterion rubric score breakdown |
 | 3. 修改指南 | Detailed per-suggestion revision instructions with before/after |
-| 4. 標注 | `AnnotatedText`: inline error highlights (yellow/orange/red by severity), click for detail |
+| 4. 標注 | `AnnotatedText`: inline error highlights (yellow/orange/red by severity), click for detail; students can mark each annotation helpful / wrong / confusing |
 | 5. 工作台 | `RevisionComposer`: side-by-side revision editor with top-5 AI suggestions |
 | 6. 模範文章 | `ModelPassagePanel`: AI-generated model essay |
 | 7. 筆記 | `NotebookWorkspace`: extractable learning notes from this submission |
@@ -286,7 +301,6 @@ Six top-level categories, each with subcategories:
 
 | Feature | Schema ready? |
 |---|---|
-| `FeedbackEvent` UI (was wrong / helpful buttons on errors) | Model exists, no UI |
 | Reading practice: passage + comprehension questions | No |
 | Assignment mode (teacher assigns tasks to class) | Class model exists, no assignment flow |
 | Parent views | No |
@@ -295,4 +309,6 @@ Six top-level categories, each with subcategories:
 
 ## Testing
 
-`npm test` runs vitest over `tests/**/*.test.ts`. The tests cover the deterministic logic only (score caps, level bands, typo deduction, offset realignment, JSON extraction, OCR-suspect detection, weakness status); there are no tests that call a model.
+`npm test` runs vitest over `tests/**/*.test.ts`. The tests cover the deterministic logic (score caps, level bands, typo deduction, offset realignment, JSON extraction, OCR-suspect detection, weakness status, calibration metrics) and `analyzeSubmission` against a mocked model; none call a real model or need a database.
+
+Grading quality is measured separately with `npm run eval:grading` against teacher-graded essays; see `eval/README.md`.
