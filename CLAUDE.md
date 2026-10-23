@@ -27,6 +27,7 @@ src/
     rubric.ts                        — HKDSE 4-criterion rubric + DSE level/score mappings + typo deduction
     rubricGuide.ts                   — Loads dse-chinese-writing-rubric.md (the source of truth) into the prompt
     taxonomy.ts                      — Error taxonomy: 字詞/語法/標點/結構/內容/表達 × subcategories
+    hkLexicon.ts                     — Rule-based pre-check: 粵語入文 lexicon, 歐化句式 patterns, 一逗到底 sentences
     weakness.ts                      — EWMA aggregator, status state machine
     auth.ts                          — Clerk user lookup + role sync + legacy cookie migration
     credits.ts                       — Credit ledger: deduct, refund, unlimited flags, audit trail
@@ -143,7 +144,7 @@ Default models (overridable via env vars):
 | 結構 (Structure) | 20 |
 | 標點 (Punctuation) | 10 |
 
-`dse-chinese-writing-rubric.md` is the single source of truth; `rubric.ts`, `scoring.ts`, the prompt text in `analysis.ts` and the fallback in `rubricGuide.ts` must match it. Prompt version: `v11-2026-10-md-aligned`.
+`dse-chinese-writing-rubric.md` is the single source of truth; `rubric.ts`, `scoring.ts`, the prompt text in `analysis.ts` and the fallback in `rubricGuide.ts` must match it. Prompt version: `v12-2026-10-hk-precheck`.
 
 DSE levels from the final score (after typo deduction), following the md's N matrix (score ≈ N × 10):
 
@@ -162,6 +163,7 @@ DSE levels from the final score (after typo deduction), following the md's N mat
 - Every typo must be listed in `errors`; the deduction uses the count of validated typo errors, not the model's `typo_count`.
 - Genre (文體) and topic (題目) are passed when given; the model applies the md's genre-specific focus (§1.2) and 審題 rules (§3.1).
 - The essay is wrapped in `<student_essay>` tags; instructions inside it are ignored (prompt-injection guard).
+- HK pre-check (`src/lib/hkLexicon.ts`): before the call, a rule scan finds Cantonese words (嘅、咗、冇、佢哋…), Europeanised patterns (作出…的決定、在…的情況下、當…的時候、進行討論、有著) and run-on comma sentences, with exact offsets. They are listed in the user prompt for the model to confirm or dismiss in context. After parsing, any *certain* Cantonese hit outside quotation marks that no model error covers is added as a 表達/粵語入文 error (at most 15), so these never slip through. Context-dependent words (點解、一齊、俾、唔…) are only ever judged by the model.
 - `coach_feedback` must not state a numeric level; the UI shows the code-derived level so the two can never disagree.
 
 ### Validation
@@ -226,12 +228,12 @@ Six top-level categories, each with subcategories:
 
 | Category | Subcategories |
 |---|---|
-| 字詞 | 錯別字, 形近字, 同音字, 詞語搭配不當 |
-| 語法 | 語序, 成分殘缺, 搭配不當, 句式雜糅 |
-| 標點 | 逗號誤用, 句號問號混淆, 引號使用 |
+| 字詞 | 錯別字, 形近字, 同音字, 詞語搭配不當, 成語誤用 |
+| 語法 | 語序, 成分殘缺, 搭配不當, 句式雜糅, 歐化句式 |
+| 標點 | 逗號誤用, 句號問號混淆, 引號使用, 一逗到底 |
 | 結構 | 中心不明, 段落銜接, 詳略失當, 開頭結尾 |
 | 內容 | 材料單薄, 脫離題意, 立意平淡 |
-| 表達 | 修辭貧乏, 用詞單一, 語言乾澀 |
+| 表達 | 修辭貧乏, 用詞單一, 語言乾澀, 粵語入文 |
 
 `validCategory(category, subcategory)` silently drops any model-hallucinated category outside the taxonomy.
 

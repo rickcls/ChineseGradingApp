@@ -18,6 +18,7 @@ import {
   RubricDef,
   DseLevel,
 } from "./rubric";
+import { detectHkIssues, hkIssuesPromptBlock, missedCantoneseErrors, type HkIssueHit } from "./hkLexicon";
 import { loadRubricGuideMarkdown } from "./rubricGuide";
 import {
   HARD_WORD_COUNT_THRESHOLD,
@@ -29,7 +30,7 @@ import {
 } from "./scoring";
 import { TAXONOMY, taxonomyAsMarkdown, validCategory } from "./taxonomy";
 
-export const PROMPT_VERSION = "v11-2026-10-md-aligned";
+export const PROMPT_VERSION = "v12-2026-10-hk-precheck";
 const ANALYSIS_TIMEOUT_MS = parsePositiveInt(process.env.ANALYSIS_OPENROUTER_TIMEOUT_MS, 90000);
 
 const ErrorItem = z.object({
@@ -140,6 +141,7 @@ function buildSystemPrompt(rubric: RubricDef, rubricGuideMarkdown: string): stri
     "對每一處指出的錯誤，都必須附上逐字證據與字元位置（char_offset_start / char_offset_end，0-based，以 UTF-16 code unit 計，即 JavaScript string.length 的計算方式）。",
     "錯誤分類必須嚴格使用下列分類表：",
     taxonomyAsMarkdown(),
+    "特別留意香港學生常見問題：粵語入文（如「嘅」「咗」「冇」「佢哋」「好似…咁」）、歐化句式、一逗到底、成語誤用。粵語入文與歐化句式屬表達問題，嚴重時會拉低表達分；一逗到底屬標點問題。人物對話若刻意保留口吻而有引號標示，可酌情不列。",
     "",
     "【導師語氣規則】",
     "1. 絕不替學生重寫整段或整篇；改寫示範以「一至兩句」為上限。",
@@ -195,7 +197,7 @@ function buildPerCriterionAnchorTable(rubric: RubricDef): string {
     .join("\n");
 }
 
-function buildUserPrompt(input: AnalysisInput): string {
+function buildUserPrompt(input: AnalysisInput, hkHits: HkIssueHit[]): string {
   const charCount = countChineseChars(input.text);
   const parts = [
     `學生年級：${input.gradeLevel}`,
@@ -210,6 +212,8 @@ function buildUserPrompt(input: AnalysisInput): string {
   );
   parts.push(`文章字數（系統估算）：約 ${charCount} 字`);
   parts.push("", "學生文章：", "<student_essay>", input.text, "</student_essay>");
+  const hkBlock = hkIssuesPromptBlock(hkHits);
+  if (hkBlock) parts.push("", hkBlock);
   parts.push(
     "",
     "請嚴格以 HKDSE 命題寫作標準評分，輸出以下 JSON 結構（所有分數為整數）：",
@@ -370,7 +374,8 @@ export async function analyzeSubmission(
   const rubric = DEFAULT_WRITING_RUBRIC;
   const rubricGuideMarkdown = loadRubricGuideMarkdown();
   const system = buildSystemPrompt(rubric, rubricGuideMarkdown);
-  const user = buildUserPrompt(input);
+  const hkHits = detectHkIssues(input.text);
+  const user = buildUserPrompt(input, hkHits);
   const baseRequest = {
     model: ANALYSIS_MODEL,
     fallbackModel: ANALYSIS_FALLBACK_MODEL,
@@ -409,7 +414,7 @@ export async function analyzeSubmission(
   enforceContentLedCap(clampedScores, rubric);
 
   const baseScore = Object.values(clampedScores).reduce((a, b) => a + b, 0);
-  const errors = parsedOutput.errors
+  const modelErrors = parsedOutput.errors
     .map((item) => ErrorItem.safeParse(normalizeErrorItem(item)))
     .filter((item): item is { success: true; data: z.infer<typeof ErrorItem> } => item.success)
     .map((item) => item.data)
@@ -417,6 +422,9 @@ export async function analyzeSubmission(
     .map((e) => realignErrorOffsets(e, input.text))
     .filter((e): e is AnalysisError => e !== null)
     .map((e) => ({ ...e, example_fix: sanitizeExampleFix(e.example_fix, e.evidence_span) }));
+  const errors: AnalysisError[] = [...modelErrors, ...missedCantoneseErrors(hkHits, modelErrors)].sort(
+    (a, b) => a.char_offset_start - b.char_offset_start,
+  );
 
   const typoCount = countEvidenceTypos(errors);
   const reportedTypoCount = Number.isFinite(parsedOutput.typo_count as number)

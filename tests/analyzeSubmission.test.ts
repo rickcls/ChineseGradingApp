@@ -93,4 +93,35 @@ describe("analyzeSubmission", () => {
     expect(result.overall_score).toBe(69);
     expect(result.dse_level).toBe("4");
   });
+
+  it("sends Cantonese candidates to the model and annotates the ones it misses", async () => {
+    const cantoneseEssay = `${essay}放學後佢哋去咗公園。`;
+    generateModelText.mockResolvedValue(
+      modelReply({
+        errors: [
+          {
+            category: "表達",
+            subcategory: "粵語入文",
+            evidence_span: "佢哋",
+            char_offset_start: 0,
+            char_offset_end: 2,
+            suggestion: "應寫「他們」",
+            severity: 1,
+            confidence: 0.9,
+          },
+        ],
+      }),
+    );
+    const { result } = await analyzeSubmission({ text: cantoneseEssay, gradeLevel: "S5" });
+
+    const { user } = generateModelText.mock.calls[0][0] as { user: string };
+    expect(user).toContain("【系統預檢：港式中文候選");
+    expect(user).toContain("[粵語] 「佢哋」");
+
+    const cantoneseErrors = result.errors.filter((e) => e.subcategory === "粵語入文");
+    expect(cantoneseErrors.map((e) => e.evidence_span)).toEqual(["佢哋", "咗"]);
+    expect(cantoneseErrors[1].char_offset_start).toBe(cantoneseEssay.indexOf("咗"));
+    // Cantonese is an expression problem, not a typo.
+    expect(result.typo_count).toBe(0);
+  });
 });
