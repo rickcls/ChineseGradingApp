@@ -137,16 +137,17 @@ export function rubricAsMarkdown(r: RubricDef): string {
 }
 
 // HKDSE 中文科 5** / 5* / 5 / 4 / 3 / 2 / 1 / U 等級對照
-// V10 以 10 分制 N 的「潛力區間」作錨點，再換算到 100 分總分。
+// 以 dse-chinese-writing-rubric.md 第二部分的 N 矩陣作錨點（總分約 = N × 10）：
+// N=10 → 5**、N=9 → 5*、N=7–8 → 5、N=6 → 4、N=5 → 3、N=3–4 → 2、N=2 → 1、N=1 → U。
 export type DseLevel = "U" | "1" | "2" | "3" | "4" | "5" | "5*" | "5**";
 
 export const DSE_LEVEL_BANDS: { level: DseLevel; min: number; note: string }[] = [
   { level: "5**", min: 95, note: "頂尖水平：立意昇華至哲理或普世價值，表達與佈局皆近乎無可挑剔。" },
   { level: "5*", min: 90, note: "實力強勁：見解獨到，表達優美，組織嚴謹，具競爭 5** 的條件。" },
-  { level: "5", min: 80, note: "優良水平：主旨深刻、表達準確有亮點，結構完整順暢，具 5** 潛力。" },
-  { level: "4", min: 60, note: "良好水平：表現穩健或基本達標，但深度、文采或節奏未能穩入 Level 5。" },
-  { level: "3", min: 50, note: "合格水平：尚算切題但內容單薄平庸，表達或結構有明顯進步空間。" },
-  { level: "2", min: 30, note: "未達標：偏題、語病或結構問題明顯，只達 Level 2 至 Level 3 邊緣。" },
+  { level: "5", min: 70, note: "優良水平：切題真摯、流暢少語病、結構完整（N=7 穩固）；N=8 以上具備衝擊 5*／5** 的條件。" },
+  { level: "4", min: 60, note: "良好水平：基本達標，但感悟大路、修辭刻意或組織公式化（N=6），Level 4 封頂。" },
+  { level: "3", min: 50, note: "合格水平：尚算切題但內容單薄平庸，表達或結構有明顯進步空間（N=5，Level 4 邊緣）。" },
+  { level: "2", min: 30, note: "未達標：輕微偏題、語病頻繁或結構鬆散（N=3–4），Level 3 封頂。" },
   { level: "1", min: 20, note: "遠遜水平：嚴重離題或未能達基本要求。" },
   { level: "U", min: 0, note: "未能評等：極劣、完全離題、內容過少或不能辨讀。" },
 ];
@@ -180,10 +181,10 @@ export function dseLevelNote(level: DseLevel): string {
   return DSE_LEVEL_BANDS.find((b) => b.level === level)?.note || "";
 }
 
-// 錯別字扣分（V10：以全卷總計）
-// 0–1: 不扣分；2–4: -1；5–7: -2；8+: -3
+// 錯別字扣分（dse-chinese-writing-rubric.md §3.5，以全卷總計）
+// 0–2: 不扣分；3–4: -1；5–7: -2；8+: -3（上限）
 export function typoBonus(typoCount: number): number {
-  if (typoCount <= 1) return 0;
+  if (typoCount <= 2) return 0;
   if (typoCount <= 4) return -1;
   if (typoCount <= 7) return -2;
   return -3;
