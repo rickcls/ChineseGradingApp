@@ -40,6 +40,7 @@ src/
     manuscript.ts                    — Lays an essay out on a 20-column 原稿紙 grid and maps annotations to red-pen marks
     regradeCompare.ts                — Re-grade snapshot of a revision + before → after comparison (level, criteria, issue counts, noise)
     practiceDrill.ts / drillView.ts  — 150-字 weakness drills: task generation from the student's own errors, requirement check
+    examTimer.ts                     — 限時模擬: countdown phases, pacing vs 600 字, local draft format
     notebook.ts                      — Learning note serialization (manual/phrase/lesson types)
     modelPassage.ts                  — AI-generated model essay management
     revisionSuggestions.ts           — Workbench suggestion prioritization (top 5 + top 2 errors)
@@ -76,7 +77,8 @@ src/
     Header.tsx                       — Top nav
     CoachCard.tsx                    — Feedback container with tone variants
     AnnotatedText.tsx                — Client: essay with inline <mark> highlights + detail panel + 有幫助／批改有錯／看不明白 buttons
-    SubmissionForm.tsx               — Client: multi-mode input with SSE progress streaming
+    SubmissionForm.tsx               — Client: multi-mode input with SSE progress streaming, timed mode, local draft autosave/restore
+    ExamTimerPanel.tsx               — Client: 限時模擬 presets and the sticky countdown bar
     RevisionComposer.tsx             — Side-by-side revision editor with AI suggestions
     ModelPassagePanel.tsx            — AI model essay viewer
     TeacherReviewForm.tsx            — Client: teacher score/level/comment form on the teacher submission page
@@ -110,7 +112,7 @@ eval/
 | Model | Purpose |
 |---|---|
 | `AppUser` | One row per Clerk user. Has `role` (student/teacher/admin), `credits`, `unlimitedCredits`, `gradeLevel`, `displayName`. |
-| `Submission` | `rawText` (untouched OCR transcript for photo/scan, else same as typed text), `verifiedText` (what was graded), source mode (typed/photo/scan), `taskPrompt` (題目), `genre` (文體, null = model decides), status enum (uploaded/verified/analyzed/failed), OCR fields. |
+| `Submission` | `rawText` (untouched OCR transcript for photo/scan, else same as typed text), `verifiedText` (what was graded), source mode (typed/photo/scan), `taskPrompt` (題目), `genre` (文體, null = model decides), `timedMinutes` / `writingSeconds` (限時模擬 limit and time used), status enum (uploaded/verified/analyzed/failed), OCR fields. |
 | `Analysis` | HKDSE rubric scores (JSON), DSE level, overall score, model name, coach feedback, strengths, revision priorities, `themeElevation` (立意昇華 JSON, generated on demand). |
 | `ErrorRecord` | Per-error row: category, subcategory, evidence span, char offsets, suggestion, severity 1–3, `ocrSuspect` flag, `studentReaction` (latest helpful/wrong/confusing). |
 | `WeaknessProfile` | Per `(user, category, subcategory)`: EWMA severity, evidence count, 10-submission rolling window (JSON), status enum. |
@@ -283,6 +285,8 @@ Six top-level categories, each with subcategories:
 - Grade selector (P5–S6), 文體 selector, topic field.
 - 審題助手 panel: after typing the topic, 「先審題」 shows 題眼, requirements, off-topic traps, three 立意 angles (基本 → 深入 → 深刻) and a writing checklist. Free; does not write the essay.
 - Three input modes: typed textarea (live char count), photo (camera), scan (image upload).
+- 限時模擬 (typed mode, optional): presets 135 / 90 / 45 minutes. A sticky bar shows the countdown, the phase (審題列大綱 → 寫作 → 檢查), pacing against 600 字, and warnings at 15 and 5 minutes. Paste is blocked while the timer runs; at time-up (or 「完成，交卷」) the essay locks and can still be submitted. The limit and time used are saved on the submission and shown on its page. Grading ignores timing.
+- The typed essay, topic, genre and timer are autosaved to `localStorage` (`essay-draft-v1`); on return the form offers 恢復草稿 / 捨棄, and a restored timer keeps counting from its original start. The draft is cleared after a successful submission.
 - On submit: `POST /api/submissions` with SSE streaming — progress events shown during analysis.
 - Button disabled below 20 chars.
 

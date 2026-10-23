@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CameraCaptureFlow } from "@/components/CameraCaptureFlow";
+import { ExamTimerPanel, type ExamTimer } from "@/components/ExamTimerPanel";
 import { TopicAnalysisPanel } from "@/components/TopicAnalysisPanel";
+import { DRAFT_KEY, parseDraft, timerSnapshot, type EssayDraft } from "@/lib/examTimer";
 
 const GRADES = ["P5", "P6", "S1", "S2", "S3", "S4", "S5", "S6"];
 const GENRES = [
@@ -43,6 +45,73 @@ export function SubmissionForm({
   const [error, setError] = useState<string | null>(null);
   const [progressChars, setProgressChars] = useState(0);
   const [progressPhase, setProgressPhase] = useState<"reading" | "persisting" | null>(null);
+  const [timer, setTimer] = useState<ExamTimer | null>(null);
+  const [now, setNow] = useState(0);
+  const [pasteBlocked, setPasteBlocked] = useState(false);
+  const [pendingDraft, setPendingDraft] = useState<EssayDraft | null>(null);
+
+  const timerFinished =
+    timer !== null && (timer.finishedMs !== null || timerSnapshot(timer.startedAt, timer.minutes, now).expired);
+  const timerRunning = timer !== null && !timerFinished;
+
+  // Offer to restore an unsubmitted draft from this device.
+  useEffect(() => {
+    try {
+      setPendingDraft(parseDraft(window.localStorage.getItem(DRAFT_KEY)));
+    } catch {
+      // Storage unavailable (private mode): drafts are a convenience only.
+    }
+    setNow(Date.now());
+  }, []);
+
+  useEffect(() => {
+    if (!timerRunning) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [timerRunning]);
+
+  useEffect(() => {
+    if (pendingDraft || (!text.trim() && !timer)) return;
+    const id = window.setTimeout(() => {
+      const draft: EssayDraft = { text, taskPrompt, genre, timer, savedAt: Date.now() };
+      try {
+        window.localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+      } catch {
+        // Ignore storage errors.
+      }
+    }, 800);
+    return () => window.clearTimeout(id);
+  }, [text, taskPrompt, genre, timer, pendingDraft]);
+
+  function clearDraft() {
+    try {
+      window.localStorage.removeItem(DRAFT_KEY);
+    } catch {
+      // Ignore storage errors.
+    }
+  }
+
+  function restoreDraft() {
+    if (!pendingDraft) return;
+    setText(pendingDraft.text);
+    setTaskPrompt(pendingDraft.taskPrompt);
+    setGenre(pendingDraft.genre);
+    setTimer(pendingDraft.timer);
+    setSource("typed");
+    setNow(Date.now());
+    setPendingDraft(null);
+  }
+
+  function discardDraft() {
+    clearDraft();
+    setPendingDraft(null);
+  }
+
+  function timedFields() {
+    if (!timer || source !== "typed") return {};
+    const elapsed = timer.finishedMs ?? Math.min(Date.now() - timer.startedAt, timer.minutes * 60_000);
+    return { timedMinutes: timer.minutes, writingSeconds: Math.round(elapsed / 1000) };
+  }
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -63,6 +132,7 @@ export function SubmissionForm({
           ocrText: source !== "typed" && ocrText ? ocrText : undefined,
           source,
           stream: true,
+          ...timedFields(),
         }),
       });
 
@@ -112,6 +182,7 @@ export function SubmissionForm({
         throw new Error("伺服器中斷了分析串流，請稍後再試。");
       }
 
+      clearDraft();
       router.push(`/submissions/${doneId}`);
     } catch (err) {
       setError(formatNetworkAwareError(err, "提交失敗，請稍後再試。"));
@@ -223,16 +294,60 @@ export function SubmissionForm({
 
       <TopicAnalysisPanel taskPrompt={taskPrompt} genre={genre} gradeLevel={gradeLevel} />
 
+      {pendingDraft ? (
+        <div className="flex flex-col gap-3 rounded-[1.2rem] border border-accent/30 bg-accent/5 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+          <span className="text-ink/85">
+            找到上次未提交的草稿（{Array.from(pendingDraft.text).length} 字，
+            {new Date(pendingDraft.savedAt).toLocaleString("zh-HK")} 保存
+            {pendingDraft.timer ? `，限時 ${pendingDraft.timer.minutes} 分鐘` : ""}）。
+          </span>
+          <span className="flex gap-2">
+            <button type="button" className="btn-primary" onClick={restoreDraft}>
+              恢復草稿
+            </button>
+            <button type="button" className="btn-secondary" onClick={discardDraft}>
+              捨棄
+            </button>
+          </span>
+        </div>
+      ) : null}
+
       {source === "typed" ? (
         <section className="space-y-4">
+          <ExamTimerPanel
+            timer={timer}
+            now={now}
+            chars={charCount}
+            onStart={(minutes) => {
+              const startedAt = Date.now();
+              setNow(startedAt);
+              setTimer({ startedAt, minutes, finishedMs: null });
+            }}
+            onFinish={() =>
+              setTimer((current) => (current ? { ...current, finishedMs: Date.now() - current.startedAt } : current))
+            }
+            onCancel={() => {
+              setTimer(null);
+              setPasteBlocked(false);
+            }}
+          />
+          {pasteBlocked && timerRunning ? (
+            <p className="text-xs text-coral">限時模擬中不能貼上文字，請直接輸入。</p>
+          ) : null}
           <label className="block">
             <span className="field-label">文章內容</span>
             <textarea
               value={text}
+              readOnly={timerFinished}
+              onPaste={(event) => {
+                if (!timerRunning) return;
+                event.preventDefault();
+                setPasteBlocked(true);
+              }}
               onChange={(event) => setText(event.target.value)}
               placeholder="把文章貼在這裡。你不需要先寫得很完美，先交出來，我們再一起修。"
               rows={16}
-              className="field-input min-h-[24rem] resize-y font-serif leading-8"
+              className="field-input min-h-[24rem] resize-y font-serif leading-8 read-only:cursor-not-allowed read-only:bg-paper/80 read-only:text-ink/75"
             />
           </label>
 

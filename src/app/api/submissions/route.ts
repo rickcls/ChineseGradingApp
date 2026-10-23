@@ -24,6 +24,9 @@ const Body = z.object({
   ocrText: z.string().max(8000).optional(),
   source: z.enum(["typed", "photo", "scan"]).optional(),
   stream: z.boolean().optional(),
+  // 限時模擬: chosen time limit and the time used under it.
+  timedMinutes: z.number().int().min(10).max(180).optional(),
+  writingSeconds: z.number().int().min(0).optional(),
 });
 
 type Body = z.infer<typeof Body>;
@@ -60,6 +63,11 @@ function submissionData(body: Body, userId: string) {
     verifiedText: body.text,
     taskPrompt: body.taskPrompt || null,
     genre: body.genre || null,
+    timedMinutes: body.timedMinutes ?? null,
+    writingSeconds:
+      body.timedMinutes && body.writingSeconds !== undefined
+        ? Math.min(body.writingSeconds, body.timedMinutes * 60)
+        : null,
     status: "verified" as const,
   };
 }

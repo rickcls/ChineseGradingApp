@@ -139,6 +139,12 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
                 {sourceLabel(submission.source)}
               </span>
               {submission.genre ? <span className="pill">{submission.genre}</span> : null}
+              {submission.timedMinutes ? (
+                <span className="pill">
+                  ⏱ 限時 {submission.timedMinutes} 分鐘
+                  {submission.writingSeconds !== null ? `・用了 ${Math.max(1, Math.round(submission.writingSeconds / 60))} 分鐘` : ""}
+                </span>
+              ) : null}
               {submission.taskPrompt ? (
                 <span className="pill" title={submission.taskPrompt}>
                   題目：
