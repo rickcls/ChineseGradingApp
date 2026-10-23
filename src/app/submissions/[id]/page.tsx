@@ -147,6 +147,9 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
                     : submission.taskPrompt}
                 </span>
               ) : null}
+              <a href={`/submissions/${submission.id}/report`} className="pill">
+                批改報告（可列印／PDF）
+              </a>
               {latestRevision ? (
                 <a href={`/submissions/${submission.id}/compare`} className="pill pill-positive">
                   已有修訂對照

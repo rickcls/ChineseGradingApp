@@ -37,6 +37,7 @@ src/
     calibration.ts                   — AI-vs-teacher calibration metrics (agreement, bias, weighted kappa, run-to-run stability)
     topicAnalysis.ts                 — 審題助手: 題眼, requirements, off-topic traps, three 立意 angles (no essay writing)
     themeElevation.ts                — 立意昇華: three-level theme deepening ladder tied to the student's own story
+    manuscript.ts                    — Lays an essay out on a 20-column 原稿紙 grid and maps annotations to red-pen marks
     notebook.ts                      — Learning note serialization (manual/phrase/lesson types)
     modelPassage.ts                  — AI-generated model essay management
     revisionSuggestions.ts           — Workbench suggestion prioritization (top 5 + top 2 errors)
@@ -50,6 +51,7 @@ src/
     submissions/
       new/page.tsx                   — Essay intake form: grade, topic, typed/photo/scan input
       [id]/page.tsx                  — 9-tab detail view (see UI pages below)
+      [id]/report/page.tsx           — Printable 批改報告: 原稿紙 grid with red-pen marks, numbered notes, scores (print → PDF)
     api/
       submissions/route.ts           — POST: create → analyse → aggregate → deduct credit (SSE streaming)
       submissions/[id]/route.ts      — GET / DELETE single submission
@@ -75,6 +77,8 @@ src/
     TeacherReviewForm.tsx            — Client: teacher score/level/comment form on the teacher submission page
     TopicAnalysisPanel.tsx           — Client: 審題助手 panel on the new-submission form
     ThemeElevationPanel.tsx          — Client: 立意昇華 panel on the submission page (examples can be saved to the notebook)
+    ManuscriptSheet.tsx              — 原稿紙 grid renderer (circles for typos/punctuation, wavy underline for wording, ① markers)
+    PrintButton.tsx                  — Client: window.print() for the report page
     NotebookWorkspace.tsx / NotebookQuickPanel.tsx — Note-taking UI
     admin/
       UserDirectory.tsx              — User list with role/credit columns
@@ -284,6 +288,12 @@ Six top-level categories, each with subcategories:
 | 7. 筆記 | `NotebookWorkspace`: extractable learning notes from this submission |
 | 8. 錯誤分類 | Error list grouped by taxonomy category |
 | 9. 對比 | Before/after revision comparison |
+
+### 批改報告 (`/submissions/[id]/report`)
+- Linked from the submission page header as 「批改報告（可列印／PDF）」.
+- The essay on a 20-column 原稿紙 grid. Typos are circled; for punctuation errors only the marks themselves are circled, with a wavy underline when the problem is a missing mark; wording/grammar problems get a wavy red underline. ①② markers match the numbered notes below.
+- Also shows the AI-estimated level (and the teacher's level if reviewed), the four scores, coach and teacher comments, strengths and the top three priorities, plus an "AI 估算，只供參考" disclaimer.
+- Annotations the student flagged as wrong are left out. Print styles (A4, header/footer hidden) live at the end of `globals.css`; on phones the grid scrolls sideways.
 
 ---
 
