@@ -8,6 +8,7 @@ import {
   InsufficientCreditsError,
   refundCreditForSubmission,
 } from "@/lib/credits";
+import { buildOcrSuspectChecker } from "@/lib/ocrSuspect";
 import { updateWeaknessProfiles } from "@/lib/weakness";
 
 export const runtime = "nodejs";
@@ -17,8 +18,10 @@ export const maxDuration = 300;
 const Body = z.object({
   text: z.string().min(20, "文章太短，請至少寫 20 字").max(8000),
   gradeLevel: z.string().optional(),
-  taskPrompt: z.string().optional(),
-  genre: z.string().optional(),
+  taskPrompt: z.string().trim().max(500).optional(),
+  genre: z.string().trim().max(20).optional(),
+  // Untouched OCR transcript for photo/scan; `text` is the student-verified version.
+  ocrText: z.string().max(8000).optional(),
   source: z.enum(["typed", "photo", "scan"]).optional(),
   stream: z.boolean().optional(),
 });
@@ -38,14 +41,30 @@ export async function POST(req: Request) {
     await prisma.appUser.update({ where: { id: user.id }, data: { gradeLevel: parsed.data.gradeLevel } });
   }
 
+  const gradeLevel = parsed.data.gradeLevel || user.gradeLevel;
+
   if (parsed.data.stream) {
-    return streamingResponse(parsed.data, user.id, user.clerkUserId);
+    return streamingResponse(parsed.data, user.id, gradeLevel);
   }
 
-  return jsonResponse(parsed.data, user.id, user.clerkUserId);
+  return jsonResponse(parsed.data, user.id, gradeLevel);
 }
 
-async function jsonResponse(body: Body, userId: string, clerkUserId: string) {
+function submissionData(body: Body, userId: string) {
+  const source = body.source || "typed";
+  return {
+    userId,
+    type: "writing" as const,
+    source,
+    rawText: source !== "typed" && body.ocrText ? body.ocrText : body.text,
+    verifiedText: body.text,
+    taskPrompt: body.taskPrompt || null,
+    genre: body.genre || null,
+    status: "verified" as const,
+  };
+}
+
+async function jsonResponse(body: Body, userId: string, gradeLevel: string) {
   let submissionId: string | null = null;
   let chargedClerkUserId: string | null = null;
 
@@ -54,22 +73,15 @@ async function jsonResponse(body: Body, userId: string, clerkUserId: string) {
     chargedClerkUserId = user.clerkUserId;
 
     const submission = await prisma.submission.create({
-      data: {
-        userId: user.id,
-        type: "writing",
-        source: body.source || "typed",
-        rawText: body.text,
-        verifiedText: body.text,
-        status: "verified",
-      },
+      data: submissionData(body, user.id),
     });
     submissionId = submission.id;
 
     const analysisOutcome = await analyzeSubmission({
       text: body.text,
-      gradeLevel: body.gradeLevel || user.gradeLevel,
-      genre: body.genre,
-      taskPrompt: body.taskPrompt,
+      gradeLevel,
+      genre: body.genre || undefined,
+      taskPrompt: body.taskPrompt || undefined,
     });
 
     await persistAnalysis(submission, analysisOutcome, userId);
@@ -101,7 +113,7 @@ async function jsonResponse(body: Body, userId: string, clerkUserId: string) {
   }
 }
 
-async function streamingResponse(body: Body, userId: string, clerkUserId: string) {
+async function streamingResponse(body: Body, userId: string, gradeLevel: string) {
   const encoder = new TextEncoder();
   let chargedClerkUserId: string | null = null;
 
@@ -120,14 +132,7 @@ async function streamingResponse(body: Body, userId: string, clerkUserId: string
         chargedClerkUserId = user.clerkUserId;
 
         const submissionPromise = prisma.submission.create({
-          data: {
-            userId,
-            type: "writing",
-            source: body.source || "typed",
-            rawText: body.text,
-            verifiedText: body.text,
-            status: "verified",
-          },
+          data: submissionData(body, userId),
         }).then((s) => {
           submissionId = s.id;
           return s;
@@ -138,9 +143,9 @@ async function streamingResponse(body: Body, userId: string, clerkUserId: string
         const analysisPromise = analyzeSubmission(
           {
             text: body.text,
-            gradeLevel: body.gradeLevel || "S2",
-            genre: body.genre,
-            taskPrompt: body.taskPrompt,
+            gradeLevel,
+            genre: body.genre || undefined,
+            taskPrompt: body.taskPrompt || undefined,
           },
           {
             onChunk: (chunk) => {
@@ -206,6 +211,12 @@ async function persistAnalysis(
   userId: string,
 ) {
   const { result, modelName, promptVersion } = outcome;
+  const isOcrSuspect = buildOcrSuspectChecker({
+    source: submission.source,
+    ocrText: submission.rawText,
+    verifiedText: submission.verifiedText,
+  });
+  const errors = result.errors.map((e) => ({ ...e, ocrSuspect: isOcrSuspect(e) }));
 
   const analysis = await prisma.analysis.create({
     data: {
@@ -227,9 +238,9 @@ async function persistAnalysis(
     },
   });
 
-  if (result.errors.length) {
+  if (errors.length) {
     await prisma.errorRecord.createMany({
-      data: result.errors.map((e) => ({
+      data: errors.map((e) => ({
         submissionId: submission.id,
         analysisId: analysis.id,
         category: e.category,
@@ -240,7 +251,7 @@ async function persistAnalysis(
         suggestion: e.suggestion,
         exampleFix: e.example_fix ?? null,
         severity: e.severity,
-        ocrSuspect: false,
+        ocrSuspect: e.ocrSuspect,
         confidence: e.confidence ?? 0.8,
       })),
     });
@@ -255,11 +266,11 @@ async function persistAnalysis(
     userId,
     submissionId: submission.id,
     submissionDate: submission.createdAt,
-    errors: result.errors.map((e) => ({
+    errors: errors.map((e) => ({
       category: e.category,
       subcategory: e.subcategory,
       severity: e.severity,
-      ocrSuspect: false,
+      ocrSuspect: e.ocrSuspect,
     })),
   });
 }

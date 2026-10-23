@@ -104,6 +104,8 @@ model Submission {
   ocrCharConfidences    Json?
   status                SubmissionStatus   @default(uploaded)
   taskId                String?
+  taskPrompt            String?            @db.Text // free-text 題目 typed by the student
+  genre                 String?            // 文體 chosen by the student; null = let the model decide
   createdAt             DateTime           @default(now())
 
   user             AppUser              @relation(fields: [userId], references: [id], onDelete: Cascade)

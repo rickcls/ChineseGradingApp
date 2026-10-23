@@ -22,9 +22,12 @@ type CameraCaptureFlowProps = {
   source: SubmissionSource;
   text: string;
   onTextChange: (value: string) => void;
+  // Receives the untouched OCR transcript so the server can tell OCR output
+  // apart from what the student corrected by hand.
+  onOcrTextChange?: (value: string) => void;
 };
 
-export function CameraCaptureFlow({ source, text, onTextChange }: CameraCaptureFlowProps) {
+export function CameraCaptureFlow({ source, text, onTextChange, onOcrTextChange }: CameraCaptureFlowProps) {
   const [pages, setPages] = useState<PageItem[]>([]);
   const [isPreparing, setIsPreparing] = useState(false);
   const [isRecognizing, setIsRecognizing] = useState(false);
@@ -131,6 +134,7 @@ export function CameraCaptureFlow({ source, text, onTextChange }: CameraCaptureF
       setTextIsStale(false);
       setRecognitionStatus(null);
       onTextChange("");
+      onOcrTextChange?.("");
       return;
     }
 
@@ -149,6 +153,7 @@ export function CameraCaptureFlow({ source, text, onTextChange }: CameraCaptureF
     setRecognitionStatus(null);
     setError(null);
     onTextChange("");
+    onOcrTextChange?.("");
   }
 
   async function runRecognition() {
@@ -193,6 +198,7 @@ export function CameraCaptureFlow({ source, text, onTextChange }: CameraCaptureF
         })),
       );
       onTextChange(recognizedText);
+      onOcrTextChange?.(recognizedText);
       setRecognitionStatus(`辨識完成，共整理 ${pagesRef.current.length} 頁，請核對後再提交。`);
     } catch (err) {
       setError(formatNetworkAwareError(err, "圖片辨識失敗，請稍後再試。"));
@@ -366,7 +372,8 @@ export function CameraCaptureFlow({ source, text, onTextChange }: CameraCaptureF
               <li>1. 一次加入一張或多張照片、掃描圖片，掃描模式也支援 PDF。</li>
               <li>2. 先用上移、下移調整頁序，再按「開始辨識」。</li>
               <li>3. 系統會按頁辨識，再整理成下方核對欄的文字版本。</li>
-              <li>4. 確認無誤後提交，導師會以這份文字版作分析。</li>
+              <li>4. 對照原稿逐字核對：□ 代表系統讀不到的字，請補上；系統讀錯的字請改回你原本寫的字（包括你真的寫錯的字），不要順手修正。</li>
+              <li>5. 確認無誤後提交，導師會以這份文字版作分析。</li>
             </ol>
           </div>
 

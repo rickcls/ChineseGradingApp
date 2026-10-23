@@ -123,6 +123,15 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
               <span className={submission.source === "typed" ? "pill" : "pill pill-warm"}>
                 {sourceLabel(submission.source)}
               </span>
+              {submission.genre ? <span className="pill">{submission.genre}</span> : null}
+              {submission.taskPrompt ? (
+                <span className="pill" title={submission.taskPrompt}>
+                  題目：
+                  {submission.taskPrompt.length > 40
+                    ? `${submission.taskPrompt.slice(0, 40)}…`
+                    : submission.taskPrompt}
+                </span>
+              ) : null}
               {latestRevision ? (
                 <a href={`/submissions/${submission.id}/compare`} className="pill pill-positive">
                   已有修訂對照
@@ -149,7 +158,7 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
                 </span>
               </div>
               <p className="mt-1 text-[0.68rem] text-muted">
-                等級以基本分決定；錯別字扣分不影響等級。
+                等級按扣除錯別字後的總分決定，並受單項短板封頂限制。
               </p>
               <p className="mt-2 text-xs leading-5 text-muted">{dseLevelNote(dseLevel)}</p>
             </div>
@@ -218,7 +227,7 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
             id="rubric-observations"
             title="HKDSE 四項評分觀察"
             eyebrow={`內容 40% · 表達 30% · 結構 20% · 標點 10%${
-              wordCountShort ? `｜字數不足 ${RECOMMENDED_WORD_COUNT}：內容與結構已相應下調` : ""
+              wordCountShort ? `｜字數不足 ${RECOMMENDED_WORD_COUNT}：內容分已酌情下調` : ""
             }`}
             className="p-6"
           >

@@ -45,7 +45,11 @@ export default async function NewSubmissionPage() {
           actionLabel="返回學生主頁"
         />
       ) : (
-        <SubmissionForm currentCredits={appUser.credits} creditsUnlimited={creditsUnlimited} />
+        <SubmissionForm
+          currentCredits={appUser.credits}
+          creditsUnlimited={creditsUnlimited}
+          defaultGradeLevel={appUser.gradeLevel}
+        />
       )}
     </div>
   );

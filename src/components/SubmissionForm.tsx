@@ -5,6 +5,13 @@ import { useRouter } from "next/navigation";
 import { CameraCaptureFlow } from "@/components/CameraCaptureFlow";
 
 const GRADES = ["P5", "P6", "S1", "S2", "S3", "S4", "S5", "S6"];
+const GENRES = [
+  { value: "", label: "自動判斷" },
+  { value: "記敘抒情文", label: "記敘／抒情" },
+  { value: "議論文", label: "議論（論說）" },
+  { value: "描寫文", label: "描寫" },
+  { value: "說明文", label: "說明" },
+] as const;
 const MODES = [
   { value: "typed", label: "直接輸入", helper: "適合已經有電子文字稿" },
   { value: "photo", label: "拍照交稿", helper: "手機拍稿後核對文字再提交" },
@@ -16,13 +23,19 @@ type SubmissionSource = (typeof MODES)[number]["value"];
 export function SubmissionForm({
   currentCredits,
   creditsUnlimited = false,
+  defaultGradeLevel,
 }: {
   currentCredits?: number;
   creditsUnlimited?: boolean;
+  defaultGradeLevel?: string;
 }) {
   const router = useRouter();
   const [text, setText] = useState("");
-  const [gradeLevel, setGradeLevel] = useState("S2");
+  const [ocrText, setOcrText] = useState("");
+  const [gradeLevel, setGradeLevel] = useState(
+    defaultGradeLevel && GRADES.includes(defaultGradeLevel) ? defaultGradeLevel : "S2",
+  );
+  const [genre, setGenre] = useState("");
   const [taskPrompt, setTaskPrompt] = useState("");
   const [source, setSource] = useState<SubmissionSource>("typed");
   const [submitting, setSubmitting] = useState(false);
@@ -44,7 +57,9 @@ export function SubmissionForm({
         body: JSON.stringify({
           text,
           gradeLevel,
-          taskPrompt: taskPrompt || undefined,
+          taskPrompt: taskPrompt.trim() || undefined,
+          genre: genre || undefined,
+          ocrText: source !== "typed" && ocrText ? ocrText : undefined,
           source,
           stream: true,
         }),
@@ -163,7 +178,7 @@ export function SubmissionForm({
         </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2">
+      <section className="grid gap-4 md:grid-cols-4">
         <label className="block">
           <span className="field-label">年級</span>
           <select
@@ -180,7 +195,22 @@ export function SubmissionForm({
         </label>
 
         <label className="block">
-          <span className="field-label">題目或寫作任務（可選）</span>
+          <span className="field-label">文體</span>
+          <select
+            value={genre}
+            onChange={(event) => setGenre(event.target.value)}
+            className="field-input"
+          >
+            {GENRES.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="block md:col-span-2">
+          <span className="field-label">題目或寫作任務（建議填寫，導師會檢查是否扣題）</span>
           <input
             value={taskPrompt}
             onChange={(event) => setTaskPrompt(event.target.value)}
@@ -226,6 +256,7 @@ export function SubmissionForm({
           source={source}
           text={text}
           onTextChange={setText}
+          onOcrTextChange={setOcrText}
         />
       )}
 

@@ -33,8 +33,8 @@ export async function POST(_req: Request, props: { params: Promise<{ id: string 
     const generated = await generateModelPassage({
       text: submission.verifiedText,
       gradeLevel: user.gradeLevel,
-      genre: submission.task?.genre,
-      taskPrompt: submission.task?.promptText || undefined,
+      genre: submission.genre || submission.task?.genre,
+      taskPrompt: submission.taskPrompt || submission.task?.promptText || undefined,
       coachFeedbackText: analysis.coachFeedbackText,
       revisionPriorities: normalizeRevisionPriorities(analysis.revisionPriorities),
     });
