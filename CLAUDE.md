@@ -23,12 +23,15 @@ src/
     db.ts                            — Prisma singleton
     anthropic.ts                     — Dual-path LLM adapter: Anthropic SDK or OpenRouter with fallback + timeout
     analysis.ts                      — LLM prompt build, response parse, Zod validation, offset realignment
-    rubric.ts                        — HKDSE 4-criterion rubric + DSE level/score mappings
+    scoring.ts                       — Deterministic score caps from the rubric md (word count, structure band, content-led, short-board, evidence-backed typo count)
+    rubric.ts                        — HKDSE 4-criterion rubric + DSE level/score mappings + typo deduction
+    rubricGuide.ts                   — Loads dse-chinese-writing-rubric.md (the source of truth) into the prompt
     taxonomy.ts                      — Error taxonomy: 字詞/語法/標點/結構/內容/表達 × subcategories
     weakness.ts                      — EWMA aggregator, status state machine
     auth.ts                          — Clerk user lookup + role sync + legacy cookie migration
     credits.ts                       — Credit ledger: deduct, refund, unlimited flags, audit trail
-    ocr.ts                           — Vision model invocation for photo/scan input modes
+    ocr.ts                           — Vision model invocation for photo/scan input modes (verbatim transcription, no auto-correct)
+    ocrSuspect.ts                    — Flags errors that may be OCR misreads (□ placeholders, typos in untouched OCR text)
     notebook.ts                      — Learning note serialization (manual/phrase/lesson types)
     modelPassage.ts                  — AI-generated model essay management
     revisionSuggestions.ts           — Workbench suggestion prioritization (top 5 + top 2 errors)
@@ -79,7 +82,7 @@ prisma/
 | Model | Purpose |
 |---|---|
 | `AppUser` | One row per Clerk user. Has `role` (student/teacher/admin), `credits`, `unlimitedCredits`, `gradeLevel`, `displayName`. |
-| `Submission` | Raw text, source mode (typed/photo/scan), status enum (uploaded/verified/analyzed/failed), OCR fields. |
+| `Submission` | `rawText` (untouched OCR transcript for photo/scan, else same as typed text), `verifiedText` (what was graded), source mode (typed/photo/scan), `taskPrompt` (題目), `genre` (文體, null = model decides), status enum (uploaded/verified/analyzed/failed), OCR fields. |
 | `Analysis` | HKDSE rubric scores (JSON), DSE level, overall score, model name, coach feedback, strengths, revision priorities. |
 | `ErrorRecord` | Per-error row: category, subcategory, evidence span, char offsets, suggestion, severity 1–3, `ocrSuspect` flag. |
 | `WeaknessProfile` | Per `(user, category, subcategory)`: EWMA severity, evidence count, 10-submission rolling window (JSON), status enum. |
@@ -91,7 +94,7 @@ prisma/
 | `WritingTask` | Writing prompts with grade, genre, guidance, suggested length. |
 | `FeedbackEvent` | Student reactions to specific errors (helpful/wrong/confusing) — for prompt tuning. |
 
-The `ocrSuspect` column on `ErrorRecord` is the OCR safety rail: errors whose evidence overlaps low-confidence OCR characters are marked `true` and excluded from weakness aggregation.
+The `ocrSuspect` column on `ErrorRecord` is the OCR safety rail, set in `persistAnalysis` via `buildOcrSuspectChecker` (`src/lib/ocrSuspect.ts`). Vision-model OCR gives no per-character confidence, so an error is suspect when its span overlaps an unresolved `□`, or when it is a 錯別字/形近字/同音字 error on characters the student left exactly as the OCR produced them (characters the student retyped during verification are trusted). Suspect errors are labelled "OCR 可能讀錯" in the UI and excluded from weakness aggregation.
 
 ---
 
@@ -129,7 +132,13 @@ Default models (overridable via env vars):
 | 結構 (Structure) | 20 |
 | 標點 (Punctuation) | 10 |
 
-DSE levels: U, 1, 2, 3, 4, 5, 5*, 5** — mapped from score ranges defined in `rubric.ts`. Prompt version: `v5-2026-04-enriched-revision-suggestions`.
+`dse-chinese-writing-rubric.md` is the single source of truth; `rubric.ts`, `scoring.ts`, the prompt text in `analysis.ts` and the fallback in `rubricGuide.ts` must match it. Prompt version: `v11-2026-10-md-aligned`.
+
+DSE levels from the final score (after typo deduction), following the md's N matrix (score ≈ N × 10):
+
+| Level | 5** | 5* | 5 | 4 | 3 | 2 | 1 | U |
+|---|---|---|---|---|---|---|---|---|
+| Min score | 95 | 90 | 70 | 60 | 50 | 30 | 20 | 0 |
 
 ### Prompt design
 
@@ -138,8 +147,11 @@ DSE levels: U, 1, 2, 3, 4, 5, 5*, 5** — mapped from score ranges defined in `r
 - Tutor-voice instruction: encouraging, specific, Socratic.
 - Hard rule: "絕不替學生重寫整篇文章" (never rewrite the essay).
 - Generates 3–8 structured revision suggestions per submission, each with: focus area, issue, reasoning, how-to steps, before/after examples.
-- Applies typo bonus independently from level: 0–1 errors → +3 pts, 2–4 → +2, 5–7 → +1.
-- Enforces structure score ≤ content score ratio constraint.
+- Typo deduction (whole essay): 0–2 → 0, 3–4 → −1, 5–7 → −2, 8+ → −3. It lowers the final score, so it can lower the level.
+- Every typo must be listed in `errors`; the deduction uses the count of validated typo errors, not the model's `typo_count`.
+- Genre (文體) and topic (題目) are passed when given; the model applies the md's genre-specific focus (§1.2) and 審題 rules (§3.1).
+- The essay is wrapped in `<student_essay>` tags; instructions inside it are ignored (prompt-injection guard).
+- `coach_feedback` must not state a numeric level; the UI shows the code-derived level so the two can never disagree.
 
 ### Validation
 
@@ -147,7 +159,12 @@ DSE levels: U, 1, 2, 3, 4, 5, 5*, 5** — mapped from score ranges defined in `r
 2. Zod schema validation.
 3. Offset realignment — model UTF-16 predictions are matched against actual source text using a distance heuristic to handle OCR drift.
 4. Filter errors whose offsets are out of range or whose category/subcategory is not in the taxonomy.
-5. Score bounds enforcement.
+5. Score bounds enforcement, then the deterministic caps in `scoring.ts`:
+   - word count (counted in code) under 400 → content ≤ N4;
+   - structure ≤ content N + 1;
+   - content N ≤ 2 → expression and structure ≤ N4;
+   - short-board level cap (any N ≤ 6 → Level 4 max, N ≤ 4 → Level 3 max);
+   - final level = lower of the model's holistic level and the score-derived level.
 
 ---
 
@@ -166,7 +183,7 @@ Called after every analysis.
 | `improving` | Last 2 submissions show ≥ 50% reduction in error count vs. prior 2. |
 | `resolved` | Last 3 consecutive submissions show zero errors in the category. |
 
-Excluded from aggregation: `ocrSuspect = true` errors, student-flagged errors (via `FeedbackEvent`), draft submissions.
+Excluded from aggregation: `ocrSuspect = true` errors. (Excluding student-flagged errors via `FeedbackEvent` is planned; there is no UI for it yet.)
 
 ---
 
@@ -273,3 +290,9 @@ Six top-level categories, each with subcategories:
 | Reading practice: passage + comprehension questions | No |
 | Assignment mode (teacher assigns tasks to class) | Class model exists, no assignment flow |
 | Parent views | No |
+
+---
+
+## Testing
+
+`npm test` runs vitest over `tests/**/*.test.ts`. The tests cover the deterministic logic only (score caps, level bands, typo deduction, offset realignment, JSON extraction, OCR-suspect detection, weakness status); there are no tests that call a model.
