@@ -38,6 +38,8 @@ src/
     topicAnalysis.ts                 — 審題助手: 題眼, requirements, off-topic traps, three 立意 angles (no essay writing)
     themeElevation.ts                — 立意昇華: three-level theme deepening ladder tied to the student's own story
     manuscript.ts                    — Lays an essay out on a 20-column 原稿紙 grid and maps annotations to red-pen marks
+    regradeCompare.ts                — Re-grade snapshot of a revision + before → after comparison (level, criteria, issue counts, noise)
+    practiceDrill.ts / drillView.ts  — 150-字 weakness drills: task generation from the student's own errors, requirement check
     notebook.ts                      — Learning note serialization (manual/phrase/lesson types)
     modelPassage.ts                  — AI-generated model essay management
     revisionSuggestions.ts           — Workbench suggestion prioritization (top 5 + top 2 errors)
@@ -56,6 +58,9 @@ src/
       submissions/route.ts           — POST: create → analyse → aggregate → deduct credit (SSE streaming)
       submissions/[id]/route.ts      — GET / DELETE single submission
       submissions/[id]/revision/route.ts      — POST: save revision session
+      submissions/[id]/revision/regrade/route.ts — POST: re-grade the latest revision (1 credit, refunded on failure)
+      drills/route.ts                — POST: start (or resume) a 150-字 drill for a weakness (free; 10 new per user per 24h)
+      drills/[id]/check/route.ts     — POST: check a drill response (max 3 checks; completed drills are locked)
       submissions/[id]/model-passage/route.ts — POST: generate/update model essay
       submissions/[id]/notebook-note/route.ts — POST: create learning note from submission
       submissions/[id]/errors/[errorId]/feedback/route.ts — POST: student reaction to an annotation (helpful/wrong/confusing)
@@ -79,6 +84,8 @@ src/
     ThemeElevationPanel.tsx          — Client: 立意昇華 panel on the submission page (examples can be saved to the notebook)
     ManuscriptSheet.tsx              — 原稿紙 grid renderer (circles for typos/punctuation, wavy underline for wording, ① markers)
     PrintButton.tsx                  — Client: window.print() for the report page
+    RegradePanel.tsx                 — Client: 重新評分 button / before → after result on the compare page
+    MicroDrillPanel.tsx              — Client: 150-字 drill on confirmed/improving weakness cards
     NotebookWorkspace.tsx / NotebookQuickPanel.tsx — Note-taking UI
     admin/
       UserDirectory.tsx              — User list with role/credit columns
@@ -107,13 +114,14 @@ eval/
 | `Analysis` | HKDSE rubric scores (JSON), DSE level, overall score, model name, coach feedback, strengths, revision priorities, `themeElevation` (立意昇華 JSON, generated on demand). |
 | `ErrorRecord` | Per-error row: category, subcategory, evidence span, char offsets, suggestion, severity 1–3, `ocrSuspect` flag, `studentReaction` (latest helpful/wrong/confusing). |
 | `WeaknessProfile` | Per `(user, category, subcategory)`: EWMA severity, evidence count, 10-submission rolling window (JSON), status enum. |
-| `RevisionSession` | Revision workspace: revised text, target error IDs, improvement delta. |
+| `RevisionSession` | Revision workspace: revised text, target error IDs, improvement delta, `regrade` (JSON snapshot of the re-grade, if any). |
 | `NotebookEntry` | Student learning notes: type (manual/phrase/lesson), content, linked submission. |
 | `AiModelPassage` | AI-generated model essay with highlights, linked to a submission. |
 | `CreditTransaction` | Audit trail for all credit changes (deduction, refund, admin grant) with attribution. |
 | `Class` / `StudentClass` | Teacher class management + student enrolment. |
 | `WritingTask` | Writing prompts with grade, genre, guidance, suggested length. |
 | `FeedbackEvent` | Append-only log of student reactions to errors (helpful/wrong/confusing/cleared) — for prompt tuning. |
+| `PracticeDrill` | 150-字 drill per (user, category, subcategory): task JSON, latest response and feedback, attempts, `completedAt`. Practice only; never changes weakness profiles. |
 | `TopicAnalysis` | 審題助手 result per (user, topic, genre, prompt version); serves as cache and daily-limit counter. |
 | `TeacherReview` | A teacher's own marking of an analysis: scores, typo count, DSE level, comment. One per (analysis, teacher). Shown to the student; exported as calibration gold data. |
 
@@ -213,7 +221,8 @@ Excluded from aggregation (`countsTowardWeakness`): `ocrSuspect = true` errors a
 
 ## Credit system (src/lib/credits.ts)
 
-- Each submission costs 1 credit (students and admins).
+- Each submission costs 1 credit (students and admins); re-grading a revision also costs 1 credit (reason `revision_regrade`, refunded as `revision_regrade_refund` on failure).
+- 審題助手, 立意昇華, model passages, notebook notes and 150-字 drills are free (審題 and drills have daily limits).
 - Credits are deducted before analysis begins; automatically refunded on failure.
 - `GLOBAL_UNLIMITED_CREDITS=true` env var bypasses all credit checks (for UAT/dev).
 - Per-user `unlimitedCredits` flag bypasses checks for that user only.
@@ -256,6 +265,9 @@ Six top-level categories, each with subcategories:
 - Lists recent submissions + weakness summary (confirmed weaknesses as focus areas, improving as encouragement).
 - Coach greeting adapts to submission count (first time / returning / veteran).
 
+### Weakness Report (`/weaknesses`)
+- Ability radar and weakness profiles by status. Confirmed and improving weaknesses offer 「做個 150 字小練習」: a short task built from the student's own past errors in that subcategory (OCR-suspect and student-flagged errors excluded), 2–3 checkable requirements, then a per-requirement ✓/✗ check, praise, next step and an optional one-sentence fix quoted from the response. No score, no model answer.
+
 ### Teacher Dashboard (`/teacher/dashboard`)
 - Class list, recent submissions across all students in teacher's classes.
 
@@ -287,7 +299,7 @@ Six top-level categories, each with subcategories:
 | 6. 模範文章 | `ModelPassagePanel`: AI-generated model essay |
 | 7. 筆記 | `NotebookWorkspace`: extractable learning notes from this submission |
 | 8. 錯誤分類 | Error list grouped by taxonomy category |
-| 9. 對比 | Before/after revision comparison |
+| 9. 對比 | Before/after revision comparison (`/submissions/[id]/compare`), with 「重新評分」: the latest revision is graded by the same pipeline and compared with the original — level, four criteria, error counts per issue (cleared ✓ / new), new feedback. Changes within ±2 points are labelled as normal AI variation. Re-grades are stored on the RevisionSession, not as submissions, so they never feed weakness tracking. |
 
 ### 批改報告 (`/submissions/[id]/report`)
 - Linked from the submission page header as 「批改報告（可列印／PDF）」.
@@ -311,7 +323,7 @@ Six top-level categories, each with subcategories:
 | `ANALYSIS_MODEL` | No | Default: `google/gemini-2.5-flash` |
 | `ANALYSIS_FALLBACK_MODEL` | No | Retry model on analysis failure |
 | `COACH_MODEL` | No | Default: `anthropic/claude-3.5-haiku`. Used for notebook notes, 審題助手 and 立意昇華 |
-| `TOPIC_ANALYSIS_MODEL` / `THEME_ELEVATION_MODEL` | No | Override `COACH_MODEL` for 審題助手 / 立意昇華 (`*_FALLBACK_MODEL` overrides the fallback) |
+| `TOPIC_ANALYSIS_MODEL` / `THEME_ELEVATION_MODEL` / `PRACTICE_DRILL_MODEL` | No | Override `COACH_MODEL` for 審題助手 / 立意昇華 / drills (`*_FALLBACK_MODEL` overrides the fallback) |
 | `OCR_MODEL` / `OCR_FALLBACK_MODEL` | No | Vision models for photo/scan mode |
 | `GLOBAL_UNLIMITED_CREDITS` | No | `true` bypasses all credit checks (UAT) |
 | `OPENROUTER_HTTP_REFERER` | No | Optional OpenRouter attribution |
