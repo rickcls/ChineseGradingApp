@@ -158,7 +158,7 @@ export async function removeSubmissionFromWeaknessProfiles(params: {
   return { updated, removed };
 }
 
-function deriveStatus(params: { windowNext: Windowed[]; evidenceCount: number }): "watching" | "confirmed" | "improving" | "resolved" {
+export function deriveStatus(params: { windowNext: Windowed[]; evidenceCount: number }): "watching" | "confirmed" | "improving" | "resolved" {
   const { windowNext, evidenceCount } = params;
   const nonzero = windowNext.filter((w) => w.count > 0);
   const distinctSubmissions = new Set(nonzero.map((w) => w.submissionId)).size;
