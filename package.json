@@ -12,7 +12,9 @@
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "db:legacy-users": "node --env-file=.env.local --import tsx scripts/cleanup-legacy-users.ts",
-    "db:legacy-users:delete-empty": "node --env-file=.env.local --import tsx scripts/cleanup-legacy-users.ts --execute"
+    "db:legacy-users:delete-empty": "node --env-file=.env.local --import tsx scripts/cleanup-legacy-users.ts --execute",
+    "eval:grading": "node --env-file=.env.local --import tsx scripts/eval-grading.ts",
+    "eval:export-reviews": "node --env-file=.env.local --import tsx scripts/export-teacher-reviews.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",

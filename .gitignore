@@ -10,3 +10,7 @@ node_modules
 
 # clerk configuration (can include secrets)
 /.clerk/
+
+# Calibration data contains students' essays; keep it out of git.
+/eval/gold/
+/eval/results/
