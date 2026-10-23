@@ -21,6 +21,7 @@ import { serializeModelPassage } from "@/lib/modelPassage";
 import { serializeNotebookEntry } from "@/lib/notebook";
 import { normalizeRevisionPriorities } from "@/lib/revisionPriority";
 import { buildWorkbenchRevisionSuggestions } from "@/lib/revisionSuggestions";
+import { toTeacherReviewView } from "@/lib/teacherReview";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +33,17 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
     prisma.submission.findFirst({
       where: { id: params.id, userId: user.id },
       include: {
-        analyses: { orderBy: { createdAt: "desc" }, take: 1 },
+        analyses: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          include: {
+            teacherReviews: {
+              orderBy: { updatedAt: "desc" },
+              take: 1,
+              include: { reviewer: { select: { name: true } } },
+            },
+          },
+        },
         errors: { orderBy: { charOffsetStart: "asc" } },
         revisionOrigin: { orderBy: { createdAt: "desc" }, take: 1 },
         aiModelPassage: true,
@@ -94,6 +105,7 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
     (typeof scores.dse_level === "string" ? (scores.dse_level as DseLevel) : undefined) ||
     dseLevelFromScore(baseScore);
   const wordCountShort = wordCount > 0 && wordCount < RECOMMENDED_WORD_COUNT;
+  const teacherReview = analysis.teacherReviews[0] ? toTeacherReviewView(analysis.teacherReviews[0]) : null;
 
   const errorsByCategory = new Map<string, typeof submission.errors>();
   for (const error of submission.errors) {
@@ -171,6 +183,30 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
           </div>
         </div>
       </section>
+
+      {teacherReview ? (
+        <section className="paper-panel border-good/30 bg-good/5 p-5 sm:p-6">
+          <p className="section-kicker">老師覆核</p>
+          <div className="mt-2 flex flex-wrap items-baseline gap-3">
+            <h2 className="text-2xl">
+              {teacherReview.reviewerName} 老師評定：Level {teacherReview.dseLevel}
+            </h2>
+            {teacherReview.dseLevel !== dseLevel ? <span className="pill">AI 估算 Level {dseLevel}</span> : null}
+          </div>
+          <ul className="mt-3 flex flex-wrap gap-2">
+            {DEFAULT_WRITING_RUBRIC.criteria.map((criterion) => (
+              <li key={criterion.key} className="pill">
+                {criterion.label} {teacherReview.scores[criterion.key]} / {criterion.maxScore}
+              </li>
+            ))}
+            {teacherReview.typoCount !== null ? <li className="pill">錯別字 {teacherReview.typoCount}</li> : null}
+          </ul>
+          {teacherReview.comment ? (
+            <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-ink/85">{teacherReview.comment}</p>
+          ) : null}
+          <p className="mt-2 text-xs text-muted">老師的評分與 AI 估算不同時，請以老師評分為準。</p>
+        </section>
+      ) : null}
 
       <SubmissionSectionTabs items={pageSections}>
         <section
@@ -332,6 +368,7 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
           </div>
           <AnnotatedText
             text={submission.verifiedText}
+            submissionId={submission.id}
             errors={submission.errors.map((error) => ({
               id: error.id,
               category: error.category,
@@ -343,6 +380,7 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
               suggestion: error.suggestion,
               exampleFix: error.exampleFix,
               ocrSuspect: error.ocrSuspect,
+              studentReaction: error.studentReaction,
             }))}
           />
         </section>

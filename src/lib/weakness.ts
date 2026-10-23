@@ -10,16 +10,26 @@ const RESOLVED_CONSECUTIVE = 3;
 
 type Windowed = { submissionId: string; count: number; severitySum: number; date: string };
 
+type WeaknessError = Pick<ErrorRecord, "category" | "subcategory" | "severity" | "ocrSuspect"> & {
+  studentReaction?: string | null;
+};
+
+// Possible OCR misreads and annotations the student reported as wrong never
+// count towards a weakness.
+export function countsTowardWeakness(error: Pick<WeaknessError, "ocrSuspect" | "studentReaction">) {
+  return !error.ocrSuspect && error.studentReaction !== "wrong";
+}
+
 export async function updateWeaknessProfiles(params: {
   userId: string;
   submissionId: string;
   submissionDate: Date;
-  errors: Pick<ErrorRecord, "category" | "subcategory" | "severity" | "ocrSuspect">[];
+  errors: WeaknessError[];
 }) {
   const { userId, submissionId, submissionDate, errors } = params;
   const dateKey = submissionDate.toISOString().slice(0, 10);
 
-  const eligible = errors.filter((e) => !e.ocrSuspect);
+  const eligible = errors.filter(countsTowardWeakness);
 
   const grouped = new Map<string, { count: number; severitySum: number }>();
   for (const e of eligible) {
@@ -107,11 +117,11 @@ export async function updateWeaknessProfiles(params: {
 export async function removeSubmissionFromWeaknessProfiles(params: {
   userId: string;
   submissionId: string;
-  errors: Pick<ErrorRecord, "category" | "subcategory" | "severity" | "ocrSuspect">[];
+  errors: WeaknessError[];
   client?: typeof prisma | Prisma.TransactionClient;
 }) {
   const { userId, submissionId, client = prisma } = params;
-  const eligible = params.errors.filter((e) => !e.ocrSuspect);
+  const eligible = params.errors.filter(countsTowardWeakness);
   const decrements = new Map<string, number>();
   for (const error of eligible) {
     const key = `${error.category}::${error.subcategory}`;
@@ -156,6 +166,83 @@ export async function removeSubmissionFromWeaknessProfiles(params: {
   }
 
   return { updated, removed };
+}
+
+// Re-sync one (category, subcategory) profile after an error from this
+// submission started or stopped counting (e.g. the student flagged it as
+// wrong, or withdrew the flag). The submission's contribution is recounted
+// from its ErrorRecords so repeated toggles cannot drift. severityEwma is
+// left as is: an EWMA step cannot be undone exactly.
+export async function resyncErrorWeakness(params: {
+  userId: string;
+  submissionId: string;
+  submissionDate: Date;
+  category: string;
+  subcategory: string;
+  delta: 1 | -1;
+  client?: typeof prisma | Prisma.TransactionClient;
+}) {
+  const { userId, submissionId, submissionDate, category, subcategory, delta, client = prisma } = params;
+
+  const counting = await client.errorRecord.findMany({
+    where: { submissionId, category, subcategory },
+    select: { severity: true, ocrSuspect: true, studentReaction: true },
+  });
+  const eligible = counting.filter(countsTowardWeakness);
+  const count = eligible.length;
+  const severitySum = eligible.reduce((sum, e) => sum + e.severity, 0);
+
+  const profile = await client.weaknessProfile.findUnique({
+    where: { userId_category_subcategory: { userId, category, subcategory } },
+  });
+
+  if (!profile) {
+    if (delta < 0 || count === 0) return { action: "none" as const };
+    const recentCounts: Windowed[] = [
+      { submissionId, count, severitySum, date: submissionDate.toISOString().slice(0, 10) },
+    ];
+    await client.weaknessProfile.create({
+      data: {
+        userId,
+        category,
+        subcategory,
+        evidenceCount: count,
+        evidenceSubmissionIds: [submissionId],
+        severityEwma: severitySum / count,
+        status: deriveStatus({ windowNext: recentCounts, evidenceCount: count }),
+        recentCounts: recentCounts as unknown as object,
+        firstSeenAt: submissionDate,
+        lastSeenAt: submissionDate,
+      },
+    });
+    return { action: "created" as const };
+  }
+
+  const previousRecentCounts: Windowed[] = Array.isArray(profile.recentCounts)
+    ? (profile.recentCounts as unknown as Windowed[])
+    : [];
+  const recentCounts = previousRecentCounts.map((item) =>
+    item.submissionId === submissionId ? { ...item, count, severitySum } : item,
+  );
+  const evidenceCount = Math.max(0, profile.evidenceCount + delta);
+  const otherIds = profile.evidenceSubmissionIds.filter((id) => id !== submissionId);
+  const evidenceSubmissionIds = count > 0 ? [...otherIds, submissionId] : otherIds;
+
+  if (evidenceCount === 0 && evidenceSubmissionIds.length === 0) {
+    await client.weaknessProfile.delete({ where: { id: profile.id } });
+    return { action: "removed" as const };
+  }
+
+  await client.weaknessProfile.update({
+    where: { id: profile.id },
+    data: {
+      evidenceCount,
+      evidenceSubmissionIds,
+      recentCounts: recentCounts as unknown as object,
+      status: deriveStatus({ windowNext: recentCounts, evidenceCount }),
+    },
+  });
+  return { action: "updated" as const };
 }
 
 export function deriveStatus(params: { windowNext: Windowed[]; evidenceCount: number }): "watching" | "confirmed" | "improving" | "resolved" {

@@ -13,7 +13,20 @@ type ErrorLike = {
   suggestion: string;
   exampleFix?: string | null;
   ocrSuspect: boolean;
+  studentReaction?: string | null;
 };
+
+type Reaction = "helpful" | "wrong" | "confusing";
+
+const REACTIONS: { value: Reaction; label: string; selectedClass: string }[] = [
+  { value: "helpful", label: "有幫助", selectedClass: "pill-positive" },
+  { value: "wrong", label: "批改有錯", selectedClass: "pill-warm" },
+  { value: "confusing", label: "看不明白", selectedClass: "border-accent/35 bg-accent/10 text-accent" },
+];
+
+function toReaction(value: string | null | undefined): Reaction | null {
+  return REACTIONS.some((option) => option.value === value) ? (value as Reaction) : null;
+}
 
 type SentenceBlock = {
   key: string;
@@ -38,8 +51,22 @@ type DerivedError = ErrorLike & {
 
 const SENTENCE_BOUNDARIES = new Set(["。", "！", "？", "；", "\n"]);
 
-export function AnnotatedText({ text, errors }: { text: string; errors: ErrorLike[] }) {
+export function AnnotatedText({
+  text,
+  errors,
+  submissionId,
+}: {
+  text: string;
+  errors: ErrorLike[];
+  // When set, students can react to each annotation.
+  submissionId?: string;
+}) {
   const sentenceRefs = useRef<Record<string, HTMLSpanElement | null>>({});
+  const [reactions, setReactions] = useState<Record<string, Reaction | null>>(() =>
+    Object.fromEntries(errors.map((error) => [error.id, toReaction(error.studentReaction)])),
+  );
+  const [pendingReactionId, setPendingReactionId] = useState<string | null>(null);
+  const [reactionError, setReactionError] = useState<string | null>(null);
   const sentenceBlocks = splitSentenceBlocks(text);
   const sorted = errors
     .map((error) => clampError(error, text.length))
@@ -81,6 +108,28 @@ export function AnnotatedText({ text, errors }: { text: string; errors: ErrorLik
     });
   }
 
+  async function react(errorId: string, next: Reaction | null) {
+    if (!submissionId) return;
+    const previous = reactions[errorId] ?? null;
+    setReactions((current) => ({ ...current, [errorId]: next }));
+    setPendingReactionId(errorId);
+    setReactionError(null);
+
+    try {
+      const res = await fetch(`/api/submissions/${submissionId}/errors/${errorId}/feedback`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reaction: next }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    } catch {
+      setReactions((current) => ({ ...current, [errorId]: previous }));
+      setReactionError("暫時未能記錄你的回饋，請稍後再試。");
+    } finally {
+      setPendingReactionId(null);
+    }
+  }
+
   function selectAdjacent(step: number) {
     if (!sorted.length) return;
     const baseIndex = activeIndex === -1 ? 0 : activeIndex;
@@ -97,6 +146,10 @@ export function AnnotatedText({ text, errors }: { text: string; errors: ErrorLik
       onSelectAdjacent={selectAdjacent}
       totalCount={sorted.length}
       text={text}
+      reaction={reactions[active.id] ?? null}
+      reactionPending={pendingReactionId === active.id}
+      reactionError={reactionError}
+      onReact={submissionId ? react : undefined}
     />
   ) : null;
 
@@ -138,6 +191,7 @@ export function AnnotatedText({ text, errors }: { text: string; errors: ErrorLik
                   <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted">
                     <span>{error.category}・{error.subcategory}</span>
                     {error.ocrSuspect ? <span className="pill bg-white/80">OCR 可能讀錯</span> : null}
+                    {reactions[error.id] === "wrong" ? <span className="pill bg-white/80">你已回報有誤</span> : null}
                   </div>
                 </button>
               );
@@ -206,6 +260,10 @@ function AnnotationFeedbackPanel({
   onSelectAdjacent,
   totalCount,
   text,
+  reaction,
+  reactionPending,
+  reactionError,
+  onReact,
 }: {
   active: DerivedError;
   activeIndex: number;
@@ -214,6 +272,10 @@ function AnnotationFeedbackPanel({
   onSelectAdjacent: (step: number) => void;
   totalCount: number;
   text: string;
+  reaction: Reaction | null;
+  reactionPending: boolean;
+  reactionError: string | null;
+  onReact?: (errorId: string, next: Reaction | null) => void;
 }) {
   return (
     <div className="annotation-feedback-panel max-h-[42vh] overflow-y-auto lg:max-h-none">
@@ -278,6 +340,35 @@ function AnnotationFeedbackPanel({
         對應片段：
         <span className="ml-1 font-serif text-ink/80">「{active.evidenceSpan}」</span>
       </div>
+
+      {onReact ? (
+        <div className="mt-4 border-t border-border/60 pt-3">
+          <p className="text-xs text-muted">這一處批改對你有用嗎？</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {REACTIONS.map((option) => {
+              const selected = reaction === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={["pill", selected ? option.selectedClass : ""].join(" ")}
+                  aria-pressed={selected}
+                  disabled={reactionPending}
+                  onClick={() => onReact(active.id, selected ? null : option.value)}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+          {reaction === "wrong" ? (
+            <p className="mt-2 text-xs leading-6 text-muted">
+              已記錄。這一處不會計入你的弱項統計，我們也會用你的回報改善批改。再按一次可撤回。
+            </p>
+          ) : null}
+          {reactionError ? <p className="mt-2 text-xs leading-6 text-coral">{reactionError}</p> : null}
+        </div>
+      ) : null}
     </div>
   );
 }

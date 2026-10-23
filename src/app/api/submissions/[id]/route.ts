@@ -33,6 +33,7 @@ export async function DELETE(_req: Request, props: { params: Promise<{ id: strin
           subcategory: true,
           severity: true,
           ocrSuspect: true,
+          studentReaction: true,
         },
       },
     },

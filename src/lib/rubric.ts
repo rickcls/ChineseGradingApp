@@ -160,6 +160,7 @@ export function dseLevelFromScore(score: number): DseLevel {
 }
 
 const LEVEL_ORDER: DseLevel[] = ["U", "1", "2", "3", "4", "5", "5*", "5**"];
+export const DSE_LEVELS: readonly DseLevel[] = LEVEL_ORDER;
 
 export function dseLevelRank(level: DseLevel): number {
   return LEVEL_ORDER.indexOf(level);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveStatus } from "../src/lib/weakness";
+import { countsTowardWeakness, deriveStatus } from "../src/lib/weakness";
 
 function windowOf(entries: Array<[count: number, date: string]>) {
   return entries.map(([count, date], index) => ({
@@ -41,5 +41,14 @@ describe("deriveStatus", () => {
       [0, "2026-10-04"],
     ]);
     expect(deriveStatus({ windowNext, evidenceCount: 3 })).toBe("resolved");
+  });
+});
+
+describe("countsTowardWeakness", () => {
+  it("excludes OCR-suspect errors and errors the student reported as wrong", () => {
+    expect(countsTowardWeakness({ ocrSuspect: false, studentReaction: null })).toBe(true);
+    expect(countsTowardWeakness({ ocrSuspect: false, studentReaction: "confusing" })).toBe(true);
+    expect(countsTowardWeakness({ ocrSuspect: true, studentReaction: null })).toBe(false);
+    expect(countsTowardWeakness({ ocrSuspect: false, studentReaction: "wrong" })).toBe(false);
   });
 });

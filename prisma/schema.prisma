@@ -28,6 +28,7 @@ model AppUser {
   feedbackEvents    FeedbackEvent[]
   aiModelPassages   AiModelPassage[]
   notebookEntries   NotebookEntry[]
+  teacherReviews    TeacherReview[]
 
   @@map("AppUser")
 }
@@ -115,6 +116,7 @@ model Submission {
   revisionOrigin   RevisionSession[]    @relation("OriginalSubmission")
   aiModelPassage   AiModelPassage?
   notebookEntries  NotebookEntry[]
+  teacherReviews   TeacherReview[]
 
   @@index([userId, createdAt])
 }
@@ -133,9 +135,10 @@ model Analysis {
   strengths          Json      // string[]
   createdAt          DateTime  @default(now())
 
-  submission  Submission  @relation(fields: [submissionId], references: [id], onDelete: Cascade)
-  rubric      Rubric?     @relation(fields: [rubricId], references: [id])
-  errors      ErrorRecord[]
+  submission      Submission      @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  rubric          Rubric?         @relation(fields: [rubricId], references: [id])
+  errors          ErrorRecord[]
+  teacherReviews  TeacherReview[]
 }
 
 model ErrorRecord {
@@ -151,6 +154,7 @@ model ErrorRecord {
   exampleFix       String?  @db.Text
   severity         Int      // 1..3
   ocrSuspect       Boolean  @default(false)
+  studentReaction  String?  // latest "helpful" | "wrong" | "confusing"; "wrong" keeps it out of weakness profiles
   confidence       Float    @default(0.8)
   createdAt        DateTime @default(now())
 
@@ -159,6 +163,28 @@ model ErrorRecord {
 
   @@index([submissionId])
   @@index([category, subcategory])
+}
+
+// A teacher's own marking of an analysed essay. Shown to the student and
+// exportable as calibration data (scripts/export-teacher-reviews.ts).
+model TeacherReview {
+  id              String   @id @default(cuid())
+  submissionId    String
+  analysisId      String
+  reviewerUserId  String
+  scores          Json     // { content, expression, structure, punctuation }
+  typoCount       Int?
+  dseLevel        String
+  comment         String?  @db.Text
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  submission  Submission  @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  analysis    Analysis    @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  reviewer    AppUser     @relation(fields: [reviewerUserId], references: [id], onDelete: Cascade)
+
+  @@unique([analysisId, reviewerUserId])
+  @@index([submissionId])
 }
 
 enum WeaknessStatus {

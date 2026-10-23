@@ -1,34 +1,30 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { TeacherReviewForm } from "@/components/TeacherReviewForm";
 import { requireRole } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { normalizeRevisionPriorities } from "@/lib/revisionPriority";
+import { DEFAULT_WRITING_RUBRIC } from "@/lib/rubric";
+import { teacherSubmissionScope } from "@/lib/teacherReview";
 
 export const dynamic = "force-dynamic";
 
 export default async function TeacherSubmissionDetailPage(props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const { clerkUserId, role } = await requireRole(["teacher", "admin"]);
-  const isAdmin = role === "admin";
+  const { appUser, clerkUserId, role } = await requireRole(["teacher", "admin"]);
 
-  const classes = await prisma.class.findMany({
-    where: isAdmin ? undefined : { teacherClerkUserId: clerkUserId },
-    include: { studentClasses: true },
-  });
-  const assignedStudentClerkUserIds = classes.flatMap((klass) =>
-    klass.studentClasses.map((membership) => membership.studentClerkUserId),
-  );
-
-  if (!isAdmin && assignedStudentClerkUserIds.length === 0) notFound();
+  const scope = await teacherSubmissionScope({ clerkUserId, isAdmin: role === "admin" });
+  if (!scope) notFound();
 
   const submission = await prisma.submission.findFirst({
-    where: {
-      id: params.id,
-      ...(isAdmin ? {} : { user: { clerkUserId: { in: assignedStudentClerkUserIds } } }),
-    },
+    where: { id: params.id, ...scope },
     include: {
       user: true,
-      analyses: { orderBy: { createdAt: "desc" }, take: 1 },
+      analyses: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        include: { teacherReviews: { where: { reviewerUserId: appUser.id } } },
+      },
       errors: { orderBy: { charOffsetStart: "asc" } },
     },
   });
@@ -38,6 +34,11 @@ export default async function TeacherSubmissionDetailPage(props: { params: Promi
   const analysis = submission.analyses[0];
   const strengths = normalizeStringArray(analysis?.strengths);
   const priorities = normalizeRevisionPriorities(analysis?.revisionPriorities).map((priority) => priority.issue);
+  const aiScores = (analysis?.scores ?? {}) as Record<string, unknown>;
+  const aiLevel = typeof aiScores.dse_level === "string" ? aiScores.dse_level : null;
+  const myReview = analysis?.teacherReviews[0] ?? null;
+  const reviewScores = (myReview?.scores ?? aiScores) as Record<string, unknown>;
+  const flaggedCount = submission.errors.filter((error) => error.studentReaction === "wrong").length;
 
   return (
     <div className="space-y-6">
@@ -53,8 +54,12 @@ export default async function TeacherSubmissionDetailPage(props: { params: Promi
             <p className="mt-2 text-sm text-muted">{formatDate(submission.createdAt)}</p>
           </div>
           <div className="rounded-[1.15rem] border border-accent/20 bg-accent/5 px-5 py-4">
-            <div className="font-serif text-4xl text-ink">{analysis ? analysis.overallScore.toFixed(0) : "…"}</div>
-            <div className="text-xs text-muted">{analysis ? "整體分數" : "等待分析"}</div>
+            <div className="font-serif text-4xl text-ink">
+              {analysis ? (aiLevel ? `L${aiLevel}` : analysis.overallScore.toFixed(0)) : "…"}
+            </div>
+            <div className="text-xs text-muted">
+              {analysis ? `AI 評估 · 總分 ${analysis.overallScore.toFixed(0)}` : "等待分析"}
+            </div>
           </div>
         </div>
       </section>
@@ -79,13 +84,47 @@ export default async function TeacherSubmissionDetailPage(props: { params: Promi
         </article>
       </section>
 
+      {analysis ? (
+        <section className="paper-panel p-5">
+          <p className="section-kicker">老師覆核</p>
+          <h2 className="mt-2 text-2xl">{myReview ? "你已覆核這篇作品" : "以你的判斷為這篇作品評分"}</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-7 text-muted">
+            預設數值是 AI 的評分，請按你的判斷修改。學生會在作品頁看到你的等級和評語；這些覆核亦可匯出，用來檢查 AI 評分是否偏高或偏低。
+          </p>
+          <div className="mt-4">
+            <TeacherReviewForm
+              submissionId={submission.id}
+              hasExistingReview={Boolean(myReview)}
+              initial={{
+                scores: Object.fromEntries(
+                  DEFAULT_WRITING_RUBRIC.criteria.map((criterion) => [
+                    criterion.key,
+                    Number(reviewScores[criterion.key]) || 0,
+                  ]),
+                ),
+                typoCount: myReview
+                  ? myReview.typoCount
+                  : Number.isFinite(Number(aiScores.typo_count))
+                    ? Number(aiScores.typo_count)
+                    : null,
+                dseLevel: myReview?.dseLevel ?? aiLevel ?? "3",
+                comment: myReview?.comment ?? "",
+              }}
+            />
+          </div>
+        </section>
+      ) : null}
+
       <section className="paper-panel p-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <p className="section-kicker">文中批註</p>
             <h2 className="mt-2 text-2xl">錯誤與建議</h2>
           </div>
-          <span className="pill">{submission.errors.length} 項</span>
+          <div className="flex flex-wrap gap-2">
+            <span className="pill">{submission.errors.length} 項</span>
+            {flaggedCount > 0 ? <span className="pill pill-warm">學生回報有誤 {flaggedCount} 項</span> : null}
+          </div>
         </div>
         {submission.errors.length === 0 ? (
           <p className="mt-4 text-sm text-muted">暫時沒有批註紀錄。</p>
@@ -96,6 +135,8 @@ export default async function TeacherSubmissionDetailPage(props: { params: Promi
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="pill pill-warm">{error.category}</span>
                   <span className="text-xs text-muted">{error.subcategory}</span>
+                  {error.studentReaction === "wrong" ? <span className="pill">學生回報有誤</span> : null}
+                  {error.ocrSuspect ? <span className="pill">OCR 可能讀錯</span> : null}
                 </div>
                 <blockquote className="mt-3 border-l-2 border-accent/30 pl-3 font-serif text-ink">{error.evidenceSpan}</blockquote>
                 <p className="mt-3 text-sm leading-7 text-muted">{error.suggestion}</p>
