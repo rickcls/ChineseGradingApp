@@ -9,6 +9,7 @@ import { RevisionComposer } from "@/components/RevisionComposer";
 import { StatePanel } from "@/components/StatePanel";
 import { StreamingText } from "@/components/StreamingText";
 import { SubmissionSectionTabs } from "@/components/SubmissionSectionTabs";
+import { ThemeElevationPanel } from "@/components/ThemeElevationPanel";
 import {
   DEFAULT_WRITING_RUBRIC,
   DseLevel,
@@ -22,6 +23,7 @@ import { serializeNotebookEntry } from "@/lib/notebook";
 import { normalizeRevisionPriorities } from "@/lib/revisionPriority";
 import { buildWorkbenchRevisionSuggestions } from "@/lib/revisionSuggestions";
 import { toTeacherReviewView } from "@/lib/teacherReview";
+import { readThemeElevation } from "@/lib/themeElevation";
 
 export const dynamic = "force-dynamic";
 
@@ -117,6 +119,7 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
     { id: "feedback-summary", label: "導師回饋" },
     { id: "rubric-observations", label: "評分觀察" },
     ...(priorities.length > 0 ? [{ id: "revision-guide", label: "改寫指南" }] : []),
+    { id: "theme-elevation", label: "立意昇華" },
     { id: "annotations", label: "文中批註" },
     { id: "workbench", label: "訂正工作台" },
     { id: "model-passage", label: "AI 參考範文" },
@@ -357,6 +360,13 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
             </ol>
           </section>
         ) : null}
+
+        <section id="theme-elevation" data-section-id="theme-elevation" className="scroll-mt-32">
+          <ThemeElevationPanel
+            submissionId={submission.id}
+            initial={readThemeElevation(analysis.themeElevation)}
+          />
+        </section>
 
         <section id="annotations" data-section-id="annotations" className="space-y-4 scroll-mt-32">
           <div>

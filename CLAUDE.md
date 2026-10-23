@@ -35,6 +35,8 @@ src/
     ocrSuspect.ts                    — Flags errors that may be OCR misreads (□ placeholders, typos in untouched OCR text)
     teacherReview.ts                 — Teacher access scope (students in the teacher's classes) + teacher review validation
     calibration.ts                   — AI-vs-teacher calibration metrics (agreement, bias, weighted kappa, run-to-run stability)
+    topicAnalysis.ts                 — 審題助手: 題眼, requirements, off-topic traps, three 立意 angles (no essay writing)
+    themeElevation.ts                — 立意昇華: three-level theme deepening ladder tied to the student's own story
     notebook.ts                      — Learning note serialization (manual/phrase/lesson types)
     modelPassage.ts                  — AI-generated model essay management
     revisionSuggestions.ts           — Workbench suggestion prioritization (top 5 + top 2 errors)
@@ -56,6 +58,8 @@ src/
       submissions/[id]/notebook-note/route.ts — POST: create learning note from submission
       submissions/[id]/errors/[errorId]/feedback/route.ts — POST: student reaction to an annotation (helpful/wrong/confusing)
       teacher/submissions/[id]/review/route.ts — POST: teacher's own scores/level/comment (upsert per teacher)
+      topic-analysis/route.ts        — POST: 審題助手 (free; cached per topic; 20 new topics per user per 24h)
+      submissions/[id]/theme-elevation/route.ts — POST: generate 立意昇華 suggestions, stored on Analysis.themeElevation
       notebook/route.ts              — POST: standalone notebook entry
       notebook/[entryId]/route.ts    — GET: fetch notebook entry
       ocr/route.ts                   — POST: OCR image → text
@@ -69,6 +73,8 @@ src/
     RevisionComposer.tsx             — Side-by-side revision editor with AI suggestions
     ModelPassagePanel.tsx            — AI model essay viewer
     TeacherReviewForm.tsx            — Client: teacher score/level/comment form on the teacher submission page
+    TopicAnalysisPanel.tsx           — Client: 審題助手 panel on the new-submission form
+    ThemeElevationPanel.tsx          — Client: 立意昇華 panel on the submission page (examples can be saved to the notebook)
     NotebookWorkspace.tsx / NotebookQuickPanel.tsx — Note-taking UI
     admin/
       UserDirectory.tsx              — User list with role/credit columns
@@ -94,7 +100,7 @@ eval/
 |---|---|
 | `AppUser` | One row per Clerk user. Has `role` (student/teacher/admin), `credits`, `unlimitedCredits`, `gradeLevel`, `displayName`. |
 | `Submission` | `rawText` (untouched OCR transcript for photo/scan, else same as typed text), `verifiedText` (what was graded), source mode (typed/photo/scan), `taskPrompt` (題目), `genre` (文體, null = model decides), status enum (uploaded/verified/analyzed/failed), OCR fields. |
-| `Analysis` | HKDSE rubric scores (JSON), DSE level, overall score, model name, coach feedback, strengths, revision priorities. |
+| `Analysis` | HKDSE rubric scores (JSON), DSE level, overall score, model name, coach feedback, strengths, revision priorities, `themeElevation` (立意昇華 JSON, generated on demand). |
 | `ErrorRecord` | Per-error row: category, subcategory, evidence span, char offsets, suggestion, severity 1–3, `ocrSuspect` flag, `studentReaction` (latest helpful/wrong/confusing). |
 | `WeaknessProfile` | Per `(user, category, subcategory)`: EWMA severity, evidence count, 10-submission rolling window (JSON), status enum. |
 | `RevisionSession` | Revision workspace: revised text, target error IDs, improvement delta. |
@@ -104,6 +110,7 @@ eval/
 | `Class` / `StudentClass` | Teacher class management + student enrolment. |
 | `WritingTask` | Writing prompts with grade, genre, guidance, suggested length. |
 | `FeedbackEvent` | Append-only log of student reactions to errors (helpful/wrong/confusing/cleared) — for prompt tuning. |
+| `TopicAnalysis` | 審題助手 result per (user, topic, genre, prompt version); serves as cache and daily-limit counter. |
 | `TeacherReview` | A teacher's own marking of an analysis: scores, typo count, DSE level, comment. One per (analysis, teacher). Shown to the student; exported as calibration gold data. |
 
 The `ocrSuspect` column on `ErrorRecord` is the OCR safety rail, set in `persistAnalysis` via `buildOcrSuspectChecker` (`src/lib/ocrSuspect.ts`). Vision-model OCR gives no per-character confidence, so an error is suspect when its span overlaps an unresolved `□`, or when it is a 錯別字/形近字/同音字 error on characters the student left exactly as the OCR produced them (characters the student retyped during verification are trusted). Suspect errors are labelled "OCR 可能讀錯" in the UI and excluded from weakness aggregation.
@@ -257,7 +264,8 @@ Six top-level categories, each with subcategories:
 - Class creation and student enrolment.
 
 ### New Submission (`/submissions/new`)
-- Grade selector (P1–S6), optional topic field.
+- Grade selector (P5–S6), 文體 selector, topic field.
+- 審題助手 panel: after typing the topic, 「先審題」 shows 題眼, requirements, off-topic traps, three 立意 angles (基本 → 深入 → 深刻) and a writing checklist. Free; does not write the essay.
 - Three input modes: typed textarea (live char count), photo (camera), scan (image upload).
 - On submit: `POST /api/submissions` with SSE streaming — progress events shown during analysis.
 - Button disabled below 20 chars.
@@ -269,6 +277,7 @@ Six top-level categories, each with subcategories:
 | 1. 評語 | Coach feedback text, strengths, revision priorities |
 | 2. 準則 | 4-criterion rubric score breakdown |
 | 3. 修改指南 | Detailed per-suggestion revision instructions with before/after |
+| 3b. 立意昇華 | `ThemeElevationPanel`: current theme + diagnosis, then 個人成長 → 人情與社會 → 哲理與文化, each with a one-sentence example from the student's own story and a 生硬套用 warning |
 | 4. 標注 | `AnnotatedText`: inline error highlights (yellow/orange/red by severity), click for detail; students can mark each annotation helpful / wrong / confusing |
 | 5. 工作台 | `RevisionComposer`: side-by-side revision editor with top-5 AI suggestions |
 | 6. 模範文章 | `ModelPassagePanel`: AI-generated model essay |
@@ -291,7 +300,8 @@ Six top-level categories, each with subcategories:
 | `OPENROUTER_API_KEY` | One of these | OpenRouter path (primary if set) |
 | `ANALYSIS_MODEL` | No | Default: `google/gemini-2.5-flash` |
 | `ANALYSIS_FALLBACK_MODEL` | No | Retry model on analysis failure |
-| `COACH_MODEL` | No | Default: `anthropic/claude-3.5-haiku` |
+| `COACH_MODEL` | No | Default: `anthropic/claude-3.5-haiku`. Used for notebook notes, 審題助手 and 立意昇華 |
+| `TOPIC_ANALYSIS_MODEL` / `THEME_ELEVATION_MODEL` | No | Override `COACH_MODEL` for 審題助手 / 立意昇華 (`*_FALLBACK_MODEL` overrides the fallback) |
 | `OCR_MODEL` / `OCR_FALLBACK_MODEL` | No | Vision models for photo/scan mode |
 | `GLOBAL_UNLIMITED_CREDITS` | No | `true` bypasses all credit checks (UAT) |
 | `OPENROUTER_HTTP_REFERER` | No | Optional OpenRouter attribution |

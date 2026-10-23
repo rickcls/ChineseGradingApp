@@ -29,6 +29,7 @@ model AppUser {
   aiModelPassages   AiModelPassage[]
   notebookEntries   NotebookEntry[]
   teacherReviews    TeacherReview[]
+  topicAnalyses     TopicAnalysis[]
 
   @@map("AppUser")
 }
@@ -133,6 +134,7 @@ model Analysis {
   coachFeedbackText  String    @db.Text
   revisionPriorities Json      // string[]
   strengths          Json      // string[]
+  themeElevation     Json?     // 立意昇華 suggestions, generated on demand (src/lib/themeElevation.ts)
   createdAt          DateTime  @default(now())
 
   submission      Submission      @relation(fields: [submissionId], references: [id], onDelete: Cascade)
@@ -185,6 +187,24 @@ model TeacherReview {
 
   @@unique([analysisId, reviewerUserId])
   @@index([submissionId])
+}
+
+// 審題助手 result for a topic a student is about to write on. Cached per
+// (user, topic, genre, prompt version) and used for the daily limit.
+model TopicAnalysis {
+  id            String   @id @default(cuid())
+  userId        String
+  taskPrompt    String   @db.Text
+  genre         String?
+  gradeLevel    String
+  result        Json
+  modelName     String
+  promptVersion String
+  createdAt     DateTime @default(now())
+
+  user  AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
 
 enum WeaknessStatus {

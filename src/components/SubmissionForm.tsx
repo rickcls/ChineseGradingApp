@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { CameraCaptureFlow } from "@/components/CameraCaptureFlow";
+import { TopicAnalysisPanel } from "@/components/TopicAnalysisPanel";
 
 const GRADES = ["P5", "P6", "S1", "S2", "S3", "S4", "S5", "S6"];
 const GENRES = [
@@ -219,6 +220,8 @@ export function SubmissionForm({
           />
         </label>
       </section>
+
+      <TopicAnalysisPanel taskPrompt={taskPrompt} genre={genre} gradeLevel={gradeLevel} />
 
       {source === "typed" ? (
         <section className="space-y-4">
