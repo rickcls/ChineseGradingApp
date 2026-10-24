@@ -30,7 +30,9 @@ src/
     hkLexicon.ts                     — Rule-based pre-check: 粵語入文 lexicon, 歐化句式 patterns, 一逗到底 sentences
     weakness.ts                      — EWMA aggregator, status state machine
     auth.ts                          — Clerk user lookup + role sync + legacy cookie migration
-    credits.ts                       — Credit ledger: deduct, refund, unlimited flags, audit trail
+    credits.ts                       — Credit ledger: deduct, refund, unlimited flags (`hasUnlimitedCredits`: site-wide test switch, per-user flag, or admin), audit trail
+    creditReasons.ts                 — Credit transaction reason codes → Chinese labels; reasons an admin can pick
+    signupCredits.ts                 — The 3 free sign-up credits and their reason code (used by auth, the Clerk webhook and the admin sync)
     ocr.ts                           — Vision model invocation for photo/scan input modes (verbatim transcription, no auto-correct)
     ocrSuspect.ts                    — Flags errors that may be OCR misreads (□ placeholders, typos in untouched OCR text)
     teacherReview.ts                 — Teacher access scope (students in the teacher's classes) + teacher review validation
@@ -49,10 +51,12 @@ src/
     revisionPriority.ts              — Revision priority normalization + deduplication
   app/
     layout.tsx                       — HTML shell, Header, global Tailwind CSS
+    error.tsx                        — Friendly error page (retry / back home) instead of the framework's server-error screen
     page.tsx                         — Root redirect
     student/dashboard/page.tsx       — Student dashboard: submissions list, weakness summary
     teacher/dashboard/page.tsx       — Teacher dashboard: class overview, recent submissions
-    admin/dashboard/page.tsx         — Admin portal: user directory, credit management, class creation
+    admin/dashboard/page.tsx         — 管理後台 with tabs: 用戶與點數 / 班級 / 點數紀錄 (?tab=users|classes|credits)
+    admin/actions.ts                 — Admin server actions; they return { ok, message } for inline feedback instead of throwing
     submissions/
       new/page.tsx                   — Essay intake form: grade, topic, typed/photo/scan input
       [id]/page.tsx                  — 9-tab detail view (see UI pages below)
@@ -99,10 +103,10 @@ src/
     teacher/AssignmentControls.tsx   — Client: release/re-lock the AI 參考範文, delete the assignment
     NotebookWorkspace.tsx / NotebookQuickPanel.tsx — Note-taking UI
     admin/
-      UserDirectory.tsx              — User list with role/credit columns
-      RoleUpdateForm.tsx             — Change user role
-      CreditAdjustmentForm.tsx       — Grant/deduct credits
-      UnlimitedCreditsForm.tsx       — Toggle unlimited credits per user
+      AdminUserDirectory.tsx         — User list (search, role/credit filters, sort) + the selected user's panel; Clerk IDs only under 技術資料
+      UserManageForm.tsx             — Client: role, credit change (+1/+5/+10, reason, note) and unlimited flag saved with one 儲存變更
+      ClassManager.tsx               — Client: create/rename/re-teacher/delete classes, add many students with search, remove students, 全班加點
+      ActionMessage.tsx              — Inline success/error line for admin forms
       SyncClerkUsersButton.tsx       — Force-sync Clerk users to DB
 prisma/
   schema.prisma                      — All DB models
@@ -236,13 +240,15 @@ Excluded from aggregation (`countsTowardWeakness`): `ocrSuspect = true` errors a
 
 ## Credit system (src/lib/credits.ts)
 
-- Each submission costs 1 credit (students and admins); re-grading a revision also costs 1 credit (reason `revision_regrade`, refunded as `revision_regrade_refund` on failure).
+- Each submission costs a student 1 credit; re-grading a revision also costs 1 credit (reason `revision_regrade`, refunded as `revision_regrade_refund` on failure).
+- Admins are never charged or refunded (`hasUnlimitedCredits`), so they can try the student side freely; their essays are left out of the admin's 教師檢視 list.
 - 審題助手, 立意昇華, model passages, notebook notes and 150-字 drills are free (審題 and drills have daily limits).
 - Essays written for a teacher's assignment cost the student 1 credit like any other submission.
 - Credits are deducted before analysis begins; automatically refunded on failure.
 - `GLOBAL_UNLIMITED_CREDITS=true` env var bypasses all credit checks (for UAT/dev).
 - Per-user `unlimitedCredits` flag bypasses checks for that user only.
-- All changes are recorded in `CreditTransaction` with admin attribution.
+- All changes are recorded in `CreditTransaction` with admin attribution. Admin changes store a reason code (`class_distribution` 課堂派發, `compensation` 補償, `testing` 測試, `admin_adjustment` 其他) plus an optional note after 「：」; `formatCreditReason` shows every code in Chinese.
+- 全班加點 gives every student in a class the same amount in one transaction.
 - New users receive 3 free credits on signup (set during Clerk webhook sync).
 
 ---
@@ -299,9 +305,10 @@ Six top-level categories, each with subcategories:
 - Essay, AI feedback and annotations (with "學生回報有誤" / "OCR 可能讀錯" markers).
 - 「老師覆核」 form: four scores, typo count, level (with the score-derived level as a hint) and a comment. The student sees it at the top of their submission page, and it overrides the AI estimate for them.
 
-### Admin Dashboard (`/admin/dashboard`)
-- User directory with role/credit columns, credit adjustment, unlimited credit toggle, Clerk user sync.
-- Class creation and student enrolment.
+### Admin Dashboard (`/admin/dashboard`) — 管理後台
+- Tabs: **用戶與點數** (directory + one panel per user: role, credit change, unlimited flag, one 儲存變更; inline result messages; an admin can't change their own role), **班級** (create, rename, change teacher, delete with its assignments, add many students with search, remove students, 全班加點), **點數紀錄** (latest 100, filter by user and type 管理員調整 / 提交與退回 / 新用戶贈送, Chinese reasons, who made each change).
+- When `GLOBAL_UNLIMITED_CREDITS` is on, a banner says so and each user's badge still shows the balance that applies once it is off.
+- Admin menu: 管理後台, 教師檢視, then 試用學生功能 (學生主頁, 新作提交, 作品紀錄, 學習筆記, 能力地圖). Teacher menu: 學生作品, 佈置任務.
 
 ### New Submission (`/submissions/new`)
 - Grade selector (P5–S6), 文體 selector, topic field.

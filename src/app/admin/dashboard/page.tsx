@@ -1,200 +1,254 @@
+import Link from "next/link";
+import type { Prisma } from "@prisma/client";
 import { AdminUserDirectory, type AdminDirectoryUser } from "@/components/admin/AdminUserDirectory";
+import { ClassManager } from "@/components/admin/ClassManager";
+import { SyncClerkUsersButton } from "@/components/admin/SyncClerkUsersButton";
 import { requireRole } from "@/lib/auth";
+import { USAGE_REASONS, formatCreditReason, isUsageReason } from "@/lib/creditReasons";
 import { isGlobalUnlimitedCreditsEnabled } from "@/lib/credits";
 import { prisma } from "@/lib/db";
-import { assignStudentToClassAction, createClassAction } from "../actions";
-import { SyncClerkUsersButton } from "@/components/admin/SyncClerkUsersButton";
-import { AdminSubmitButton } from "@/components/admin/AdminSubmitButton";
+import { INITIAL_CREDIT_REASON } from "@/lib/signupCredits";
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminDashboardPage() {
-  await requireRole(["admin"]);
+const TABS = [
+  { value: "users", label: "用戶與點數" },
+  { value: "classes", label: "班級" },
+  { value: "credits", label: "點數紀錄" },
+] as const;
+type Tab = (typeof TABS)[number]["value"];
+
+const LOG_TYPES = [
+  { value: "all", label: "全部" },
+  { value: "admin", label: "管理員調整" },
+  { value: "usage", label: "提交與退回" },
+  { value: "signup", label: "新用戶贈送" },
+] as const;
+type LogType = (typeof LOG_TYPES)[number]["value"];
+
+export default async function AdminDashboardPage(props: {
+  searchParams: Promise<{ tab?: string; user?: string; type?: string }>;
+}) {
+  const searchParams = await props.searchParams;
+  const { clerkUserId: currentClerkUserId } = await requireRole(["admin"]);
+  const tab: Tab = TABS.find((item) => item.value === searchParams.tab)?.value ?? "users";
   const globalUnlimitedCredits = isGlobalUnlimitedCreditsEnabled();
 
-  const [linkedUsers, legacyUserCount, transactions, classes] = await Promise.all([
-    prisma.appUser.findMany({
-      where: {
-        clerkUserId: {
-          not: null,
-        },
-      },
-      orderBy: { createdAt: "desc" },
-    }),
-    prisma.appUser.count({
-      where: {
-        clerkUserId: null,
-      },
-    }),
-    prisma.creditTransaction.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 50,
-    }),
-    prisma.class.findMany({
-      orderBy: { createdAt: "desc" },
-      include: { studentClasses: true },
-    }),
+  const [linkedUsers, legacyUserCount, classCount] = await Promise.all([
+    prisma.appUser.findMany({ where: { clerkUserId: { not: null } }, orderBy: { createdAt: "desc" } }),
+    prisma.appUser.count({ where: { clerkUserId: null } }),
+    prisma.class.count(),
   ]);
-
-  const teachers = linkedUsers.filter((user) => user.role === "teacher");
-  const students = linkedUsers.filter((user) => user.role === "student");
   const userByClerkId = new Map(linkedUsers.map((user) => [user.clerkUserId!, user]));
-  const directoryUsers: AdminDirectoryUser[] = linkedUsers.map((user) => ({
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    clerkUserId: user.clerkUserId!,
-    role: user.role,
-    credits: user.credits,
-    unlimitedCredits: user.unlimitedCredits,
-    createdAtIso: user.createdAt.toISOString(),
-    createdAtLabel: formatDate(user.createdAt),
-  }));
+  const person = (user: (typeof linkedUsers)[number]) => ({ clerkUserId: user.clerkUserId!, name: user.name, email: user.email });
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <section className="paper-panel-strong p-6 sm:p-7">
-        <p className="section-kicker">管理員主頁</p>
-        <h1 className="mt-2 text-3xl sm:text-4xl">角色、點數與班級管理</h1>
-        <p className="mt-3 max-w-2xl text-sm leading-7 text-ink/75">
-          所有角色與點數變更都在伺服器端檢查管理員權限；點數每次變動都會保留交易紀錄。
-        </p>
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <SyncClerkUsersButton />
-          <span className="text-xs text-muted">把 Clerk 上已有帳號但未出現在下方列表的用戶同步過來</span>
+        <p className="section-kicker">管理後台</p>
+        <h1 className="mt-2 text-3xl sm:text-4xl">用戶、班級與點數</h1>
+        <div className="mt-4 flex flex-wrap gap-2 text-sm">
+          <span className="pill">{linkedUsers.length} 位用戶</span>
+          <span className="pill">{classCount} 個班級</span>
+          <span className="pill">管理員提交文章不扣點</span>
         </div>
         {globalUnlimitedCredits ? (
           <p className="mt-4 rounded-[1rem] border border-good/20 bg-good/10 px-4 py-3 text-sm text-ink/80">
-            UAT 全站無限點數已啟用；所有學生提交文章時都不會扣點。
+            全站無限點數（測試模式）開啟中：所有人提交文章都不會扣點。關閉（移除 GLOBAL_UNLIMITED_CREDITS 環境變數）後，會按各人的餘額扣點。
           </p>
         ) : null}
       </section>
 
-      <AdminUserDirectory
-        users={directoryUsers}
-        legacyUserCount={legacyUserCount}
-        globalUnlimitedCredits={globalUnlimitedCredits}
-      />
+      <nav className="flex flex-wrap gap-2" aria-label="管理後台分頁">
+        {TABS.map((item) => (
+          <Link
+            key={item.value}
+            href={`/admin/dashboard?tab=${item.value}`}
+            aria-current={tab === item.value ? "page" : undefined}
+            className={tab === item.value ? "btn-primary" : "btn-secondary"}
+          >
+            {item.label}
+          </Link>
+        ))}
+      </nav>
 
-      <section className="grid gap-5 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-        <div className="paper-panel p-5">
-          <p className="section-kicker">建立班級</p>
-          <h2 className="mt-2 text-2xl">指派老師</h2>
-          <form action={createClassAction} className="mt-4 space-y-3">
-            <label className="block">
-              <span className="field-label">班級名稱</span>
-              <input name="name" required placeholder="例：S3 中文寫作班" className="field-input" />
-            </label>
-            <label className="block">
-              <span className="field-label">老師</span>
-              <select name="teacherClerkUserId" required className="field-input" defaultValue="">
-                <option value="" disabled>
-                  選擇老師
-                </option>
-                {teachers.map((teacher) => (
-                  <option key={teacher.id} value={teacher.clerkUserId!}>
-                    {teacher.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <AdminSubmitButton className="btn-primary" pendingText="建立中...">
-              建立班級
-            </AdminSubmitButton>
-          </form>
-        </div>
-
-        <div className="paper-panel p-5">
-          <p className="section-kicker">學生分班</p>
-          <h2 className="mt-2 text-2xl">把學生加入班級</h2>
-          <form action={assignStudentToClassAction} className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_auto] md:items-end">
-            <label className="block">
-              <span className="field-label">班級</span>
-              <select name="classId" required className="field-input" defaultValue="">
-                <option value="" disabled>
-                  選擇班級
-                </option>
-                {classes.map((klass) => (
-                  <option key={klass.id} value={klass.id}>
-                    {klass.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className="field-label">學生</span>
-              <select name="studentClerkUserId" required className="field-input" defaultValue="">
-                <option value="" disabled>
-                  選擇學生
-                </option>
-                {students.map((student) => (
-                  <option key={student.id} value={student.clerkUserId!}>
-                    {student.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <AdminSubmitButton className="btn-secondary" pendingText="加入中...">
-              加入
-            </AdminSubmitButton>
-          </form>
-
-          <div className="mt-5 space-y-3">
-            {classes.length === 0 ? (
-              <p className="text-sm text-muted">尚未建立班級。</p>
-            ) : (
-              classes.map((klass) => {
-                const teacher = userByClerkId.get(klass.teacherClerkUserId);
-                return (
-                  <div key={klass.id} className="rounded-[1.15rem] border border-border/70 bg-white/75 p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <strong>{klass.name}</strong>
-                      <span className="pill">{klass.studentClasses.length} 位學生</span>
-                    </div>
-                    <p className="mt-1 text-xs text-muted">老師：{teacher?.name || klass.teacherClerkUserId}</p>
-                    <p className="mt-2 text-sm text-muted">
-                      {klass.studentClasses
-                        .map((membership) => userByClerkId.get(membership.studentClerkUserId)?.name || membership.studentClerkUserId)
-                        .join("、") || "尚未加入學生"}
-                    </p>
-                  </div>
-                );
-              })
+      {tab === "users" ? (
+        <>
+          <div className="flex flex-wrap items-center gap-3">
+            <SyncClerkUsersButton />
+            <span className="text-xs text-muted">新用戶第一次登入後會自動出現；如果有人登入過但不在列表，按這裡同步。</span>
+          </div>
+          <AdminUserDirectory
+            users={linkedUsers.map(
+              (user): AdminDirectoryUser => ({
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                clerkUserId: user.clerkUserId!,
+                role: user.role,
+                credits: user.credits,
+                unlimitedCredits: user.unlimitedCredits,
+                createdAtIso: user.createdAt.toISOString(),
+                createdAtLabel: formatDate(user.createdAt),
+              }),
             )}
-          </div>
-        </div>
-      </section>
+            legacyUserCount={legacyUserCount}
+            globalUnlimitedCredits={globalUnlimitedCredits}
+            currentClerkUserId={currentClerkUserId}
+          />
+        </>
+      ) : null}
 
-      <section className="space-y-4">
-        <div>
-          <p className="section-kicker">點數交易紀錄</p>
-          <h2 className="mt-2 text-2xl">最近 50 筆</h2>
-        </div>
-        <div className="paper-panel overflow-hidden">
-          <div className="divide-y divide-border/70">
-            {transactions.map((transaction) => {
-              const user = userByClerkId.get(transaction.clerkUserId);
-              return (
-                <div key={transaction.id} className="grid gap-2 px-4 py-3 text-sm md:grid-cols-[1fr_7rem_1fr_9rem] md:items-center">
-                  <span>{user?.name || transaction.clerkUserId}</span>
-                  <span className={transaction.amount >= 0 ? "text-good" : "text-coral"}>
-                    {transaction.amount >= 0 ? "+" : ""}
-                    {transaction.amount}
-                  </span>
-                  <span className="break-all text-muted">{transaction.reason}</span>
-                  <span className="text-xs text-muted">{formatDate(transaction.createdAt)}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </section>
+      {tab === "classes" ? (
+        <ClassesTab
+          linkedUsers={linkedUsers}
+          userByClerkId={userByClerkId}
+          person={person}
+        />
+      ) : null}
+
+      {tab === "credits" ? (
+        <CreditsTab
+          linkedUsers={linkedUsers}
+          userByClerkId={userByClerkId}
+          userFilter={searchParams.user && userByClerkId.has(searchParams.user) ? searchParams.user : ""}
+          typeFilter={LOG_TYPES.find((item) => item.value === searchParams.type)?.value ?? "all"}
+        />
+      ) : null}
     </div>
   );
 }
 
+type LinkedUser = Awaited<ReturnType<typeof prisma.appUser.findMany>>[number];
+
+async function ClassesTab({
+  linkedUsers,
+  userByClerkId,
+  person,
+}: {
+  linkedUsers: LinkedUser[];
+  userByClerkId: Map<string, LinkedUser>;
+  person: (user: LinkedUser) => { clerkUserId: string; name: string; email: string | null };
+}) {
+  const classes = await prisma.class.findMany({ orderBy: { createdAt: "desc" }, include: { studentClasses: true } });
+  return (
+    <ClassManager
+      classes={classes.map((klass) => ({
+        id: klass.id,
+        name: klass.name,
+        teacherClerkUserId: klass.teacherClerkUserId,
+        teacherName: userByClerkId.get(klass.teacherClerkUserId)?.name ?? "（老師帳戶已不存在）",
+        students: klass.studentClasses
+          .map((membership) => userByClerkId.get(membership.studentClerkUserId))
+          .filter((user): user is LinkedUser => Boolean(user))
+          .map(person)
+          .sort((a, b) => a.name.localeCompare(b.name, "zh-HK")),
+      }))}
+      teachers={linkedUsers.filter((user) => user.role !== "student").map(person)}
+      students={linkedUsers
+        .filter((user) => user.role === "student")
+        .map(person)
+        .sort((a, b) => a.name.localeCompare(b.name, "zh-HK"))}
+    />
+  );
+}
+
+async function CreditsTab({
+  linkedUsers,
+  userByClerkId,
+  userFilter,
+  typeFilter,
+}: {
+  linkedUsers: LinkedUser[];
+  userByClerkId: Map<string, LinkedUser>;
+  userFilter: string;
+  typeFilter: LogType;
+}) {
+  const typeWhere: Prisma.CreditTransactionWhereInput =
+    typeFilter === "usage"
+      ? { reason: { in: USAGE_REASONS } }
+      : typeFilter === "signup"
+        ? { reason: INITIAL_CREDIT_REASON }
+        : typeFilter === "admin"
+          ? { createdByClerkUserId: { not: null }, reason: { notIn: [...USAGE_REASONS, INITIAL_CREDIT_REASON] } }
+          : {};
+  const transactions = await prisma.creditTransaction.findMany({
+    where: { ...typeWhere, ...(userFilter ? { clerkUserId: userFilter } : {}) },
+    orderBy: { createdAt: "desc" },
+    take: 100,
+  });
+
+  return (
+    <section className="space-y-4">
+      <form method="get" className="paper-panel grid gap-3 p-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+        <input type="hidden" name="tab" value="credits" />
+        <label className="block">
+          <span className="field-label">用戶</span>
+          <select name="user" defaultValue={userFilter} className="field-input min-h-0 py-2 text-sm">
+            <option value="">所有用戶</option>
+            {linkedUsers
+              .slice()
+              .sort((a, b) => a.name.localeCompare(b.name, "zh-HK"))
+              .map((user) => (
+                <option key={user.id} value={user.clerkUserId!}>
+                  {user.name}
+                  {user.email ? `（${user.email}）` : ""}
+                </option>
+              ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="field-label">類別</span>
+          <select name="type" defaultValue={typeFilter} className="field-input min-h-0 py-2 text-sm">
+            {LOG_TYPES.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button type="submit" className="btn-secondary">
+          篩選
+        </button>
+      </form>
+
+      <div className="paper-panel overflow-hidden">
+        <div className="border-b border-border/70 px-4 py-3 text-sm text-muted">最近 {transactions.length} 筆（最多顯示 100 筆）</div>
+        {transactions.length === 0 ? (
+          <p className="px-4 py-8 text-center text-sm text-muted">沒有符合條件的紀錄。</p>
+        ) : (
+          <div className="divide-y divide-border/70">
+            {transactions.map((transaction) => {
+              const user = userByClerkId.get(transaction.clerkUserId);
+              const automatic = isUsageReason(transaction.reason) || transaction.reason === INITIAL_CREDIT_REASON;
+              const by = automatic
+                ? "系統"
+                : transaction.createdByClerkUserId
+                  ? (userByClerkId.get(transaction.createdByClerkUserId)?.name ?? "管理員")
+                  : "系統";
+              return (
+                <div key={transaction.id} className="grid gap-1 px-4 py-3 text-sm md:grid-cols-[9rem_1fr_5rem_1.4fr_7rem] md:items-center md:gap-3">
+                  <span className="text-xs text-muted">{formatDate(transaction.createdAt)}</span>
+                  <span className="text-ink">{user?.name ?? "（已刪除的用戶）"}</span>
+                  <span className={transaction.amount >= 0 ? "font-medium text-good" : "font-medium text-coral"}>
+                    {transaction.amount >= 0 ? "+" : ""}
+                    {transaction.amount}
+                  </span>
+                  <span className="text-ink/80">{formatCreditReason(transaction.reason)}</span>
+                  <span className="text-xs text-muted">經手：{by}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function formatDate(value: Date) {
-  return value.toLocaleDateString("zh-HK", {
+  return value.toLocaleString("zh-HK", {
+    timeZone: "Asia/Hong_Kong",
     year: "numeric",
     month: "short",
     day: "numeric",

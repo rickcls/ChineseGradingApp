@@ -9,6 +9,8 @@ type NavItem = {
   href: string;
   label: string;
   exact?: boolean;
+  // Items sharing a group are shown together after a small label.
+  group?: string;
 };
 
 const STUDENT_NAV_ITEMS: NavItem[] = [
@@ -20,19 +22,18 @@ const STUDENT_NAV_ITEMS: NavItem[] = [
 ];
 
 const TEACHER_NAV_ITEMS: NavItem[] = [
-  { href: "/dashboard", label: "主頁" },
   { href: "/teacher/dashboard", label: "學生作品" },
+  { href: "/teacher/assignments/new", label: "佈置任務", exact: true },
 ];
 
 const ADMIN_NAV_ITEMS: NavItem[] = [
-  { href: "/dashboard", label: "主頁" },
-  { href: "/admin/dashboard", label: "用戶管理" },
-  { href: "/student/dashboard", label: "學生主頁" },
-  { href: "/submissions/new", label: "新作提交", exact: true },
-  { href: "/submissions", label: "作品紀錄" },
-  { href: "/notebook", label: "學習筆記" },
-  { href: "/weaknesses", label: "能力地圖" },
+  { href: "/admin/dashboard", label: "管理後台" },
   { href: "/teacher/dashboard", label: "教師檢視" },
+  { href: "/student/dashboard", label: "學生主頁", group: "試用學生功能" },
+  { href: "/submissions/new", label: "新作提交", exact: true, group: "試用學生功能" },
+  { href: "/submissions", label: "作品紀錄", group: "試用學生功能" },
+  { href: "/notebook", label: "學習筆記", group: "試用學生功能" },
+  { href: "/weaknesses", label: "能力地圖", group: "試用學生功能" },
 ];
 
 export function Header() {
@@ -90,8 +91,9 @@ export function Header() {
           </Link>
 
           <div className="flex items-center gap-3">
-            <nav className="flex flex-wrap gap-2 text-sm">
-              {navItems.map((item) => {
+            <nav className="flex flex-wrap items-center gap-2 text-sm">
+              {navItems.map((item, index) => {
+                const groupLabel = item.group && item.group !== navItems[index - 1]?.group ? item.group : null;
                 const active =
                   item.href === "/dashboard"
                     ? pathname === "/dashboard"
@@ -101,7 +103,7 @@ export function Header() {
                         ? pathname === "/submissions" || (pathname.startsWith("/submissions/") && !pathname.startsWith("/submissions/new"))
                         : pathname === item.href || pathname.startsWith(`${item.href}/`);
 
-                return (
+                const link = (
                   <Link
                     key={item.href}
                     href={item.href}
@@ -120,6 +122,14 @@ export function Header() {
                     {pendingHref === item.href ? <span aria-hidden="true" className="pending-spinner" /> : null}
                     <span>{pendingHref === item.href ? "載入中…" : item.label}</span>
                   </Link>
+                );
+                return groupLabel ? (
+                  <span key={item.href} className="flex items-center gap-2">
+                    <span className="ml-1 border-l border-border pl-3 text-xs text-muted">{groupLabel}</span>
+                    {link}
+                  </span>
+                ) : (
+                  link
                 );
               })}
             </nav>

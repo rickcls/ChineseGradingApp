@@ -7,6 +7,12 @@ export function isGlobalUnlimitedCreditsEnabled() {
   return isTruthyEnv(process.env.UAT_UNLIMITED_CREDITS || process.env.GLOBAL_UNLIMITED_CREDITS);
 }
 
+// Admins test the student side without paying; everyone else needs the site-wide
+// test switch or their own unlimited flag.
+export function hasUnlimitedCredits(user: { role: string; unlimitedCredits: boolean }) {
+  return isGlobalUnlimitedCreditsEnabled() || user.unlimitedCredits || user.role === "admin";
+}
+
 export class InsufficientCreditsError extends Error {
   constructor(message = "沒有足夠批改點數。") {
     super(message);
@@ -74,7 +80,7 @@ export async function deductCreditForSubmission(reason = "essay_submission") {
 
   return prisma.$transaction(async (tx) => {
     const appUser = await tx.appUser.findUniqueOrThrow({ where: { clerkUserId } });
-    if (isGlobalUnlimitedCreditsEnabled() || appUser.unlimitedCredits) {
+    if (hasUnlimitedCredits(appUser)) {
       return appUser;
     }
 
@@ -108,7 +114,7 @@ export async function refundCreditForSubmission(clerkUserId: string, reason: str
 
   return prisma.$transaction(async (tx) => {
     const existing = await tx.appUser.findUniqueOrThrow({ where: { clerkUserId } });
-    if (isGlobalUnlimitedCreditsEnabled() || existing.unlimitedCredits) {
+    if (hasUnlimitedCredits(existing)) {
       return existing;
     }
 

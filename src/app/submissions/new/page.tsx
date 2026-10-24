@@ -2,7 +2,7 @@ import { SubmissionForm, type AssignmentBrief } from "@/components/SubmissionFor
 import { StatePanel } from "@/components/StatePanel";
 import { studentAssignmentWhere } from "@/lib/assignments";
 import { requireRole } from "@/lib/auth";
-import { isGlobalUnlimitedCreditsEnabled } from "@/lib/credits";
+import { hasUnlimitedCredits } from "@/lib/credits";
 import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export default async function NewSubmissionPage(props: { searchParams: Promise<{ assignment?: string }> }) {
   const { assignment: assignmentId } = await props.searchParams;
   const { appUser } = await requireRole(["student", "admin"]);
-  const creditsUnlimited = isGlobalUnlimitedCreditsEnabled() || appUser.unlimitedCredits;
+  const creditsUnlimited = hasUnlimitedCredits(appUser);
   const assignmentRow = assignmentId
     ? await prisma.assignment.findFirst({
         where: { id: assignmentId, ...studentAssignmentWhere(appUser.clerkUserId) },

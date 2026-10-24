@@ -5,7 +5,7 @@ import { requireRole } from "@/lib/auth";
 import { RegradePanel } from "@/components/RegradePanel";
 import { RevisionComparison } from "@/components/RevisionComparison";
 import { StatePanel } from "@/components/StatePanel";
-import { isGlobalUnlimitedCreditsEnabled } from "@/lib/credits";
+import { hasUnlimitedCredits } from "@/lib/credits";
 import { modelPassageLocked } from "@/lib/assignments";
 import { serializeModelPassage } from "@/lib/modelPassage";
 import { serializeNotebookEntry } from "@/lib/notebook";
@@ -114,7 +114,7 @@ export default async function SubmissionComparePage(props: { params: Promise<{ i
           regrade,
         )
       : null;
-  const unlimitedCredits = isGlobalUnlimitedCreditsEnabled() || user.unlimitedCredits;
+  const unlimitedCredits = hasUnlimitedCredits(user);
 
   return (
     <div className="space-y-6">
