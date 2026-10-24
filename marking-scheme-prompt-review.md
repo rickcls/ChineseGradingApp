@@ -1,3 +1,5 @@
+> **Superseded (2026-10-23).** This review describes prompt version `v5`. The current rules follow `dse-chinese-writing-rubric.md` (prompt `v11-2026-10-md-aligned`): typos are a deduction (0–2 free, 3–4 −1, 5–7 −2, 8+ −3), Level 5 starts at 70, and structure may be one band above content. See the "Analysis pipeline" section of `CLAUDE.md` for the current behaviour.
+
 # Current Marking Scheme Prompt Review
 
 Date reviewed: 2026-05-05

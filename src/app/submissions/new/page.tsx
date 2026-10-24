@@ -1,13 +1,32 @@
-import { SubmissionForm } from "@/components/SubmissionForm";
+import { SubmissionForm, type AssignmentBrief } from "@/components/SubmissionForm";
 import { StatePanel } from "@/components/StatePanel";
+import { studentAssignmentWhere } from "@/lib/assignments";
 import { requireRole } from "@/lib/auth";
 import { isGlobalUnlimitedCreditsEnabled } from "@/lib/credits";
+import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
-export default async function NewSubmissionPage() {
+export default async function NewSubmissionPage(props: { searchParams: Promise<{ assignment?: string }> }) {
+  const { assignment: assignmentId } = await props.searchParams;
   const { appUser } = await requireRole(["student", "admin"]);
   const creditsUnlimited = isGlobalUnlimitedCreditsEnabled() || appUser.unlimitedCredits;
+  const assignmentRow = assignmentId
+    ? await prisma.assignment.findFirst({
+        where: { id: assignmentId, ...studentAssignmentWhere(appUser.clerkUserId) },
+        include: { class: { select: { name: true } } },
+      })
+    : null;
+  const assignment: AssignmentBrief | null = assignmentRow
+    ? {
+        id: assignmentRow.id,
+        className: assignmentRow.class.name,
+        taskPrompt: assignmentRow.taskPrompt,
+        genre: assignmentRow.genre,
+        instructions: assignmentRow.instructions,
+        dueAt: assignmentRow.dueAt?.toISOString() ?? null,
+      }
+    : null;
 
   return (
     <div className="space-y-6">
@@ -36,7 +55,15 @@ export default async function NewSubmissionPage() {
           </div>
         </div>
       </section>
-      {appUser.credits <= 0 && !creditsUnlimited ? (
+      {assignmentId && !assignment ? (
+        <StatePanel
+          state="error"
+          title="找不到這份寫作任務"
+          description="任務可能已被老師刪除，或者你不在這個班級。你仍然可以返回主頁，或者自由寫作一篇。"
+          actionHref="/student/dashboard"
+          actionLabel="返回學生主頁"
+        />
+      ) : appUser.credits <= 0 && !creditsUnlimited ? (
         <StatePanel
           state="empty"
           title="目前沒有可用批改點數"
@@ -45,7 +72,12 @@ export default async function NewSubmissionPage() {
           actionLabel="返回學生主頁"
         />
       ) : (
-        <SubmissionForm currentCredits={appUser.credits} creditsUnlimited={creditsUnlimited} />
+        <SubmissionForm
+          currentCredits={appUser.credits}
+          creditsUnlimited={creditsUnlimited}
+          defaultGradeLevel={appUser.gradeLevel}
+          assignment={assignment}
+        />
       )}
     </div>
   );

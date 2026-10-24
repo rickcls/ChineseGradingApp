@@ -3,12 +3,14 @@ import { prisma } from "@/lib/db";
 import { requireRole } from "@/lib/auth";
 import { AnnotatedText } from "@/components/AnnotatedText";
 import { CoachCard } from "@/components/CoachCard";
+import { ModelPassageLockedNotice } from "@/components/ModelPassageLockedNotice";
 import { ModelPassagePanel } from "@/components/ModelPassagePanel";
 import { NotebookQuickPanel } from "@/components/NotebookQuickPanel";
 import { RevisionComposer } from "@/components/RevisionComposer";
 import { StatePanel } from "@/components/StatePanel";
 import { StreamingText } from "@/components/StreamingText";
 import { SubmissionSectionTabs } from "@/components/SubmissionSectionTabs";
+import { ThemeElevationPanel } from "@/components/ThemeElevationPanel";
 import {
   DEFAULT_WRITING_RUBRIC,
   DseLevel,
@@ -17,10 +19,14 @@ import {
   RECOMMENDED_WORD_COUNT,
   totalMaxScore,
 } from "@/lib/rubric";
+import { modelPassageLocked } from "@/lib/assignments";
 import { serializeModelPassage } from "@/lib/modelPassage";
 import { serializeNotebookEntry } from "@/lib/notebook";
 import { normalizeRevisionPriorities } from "@/lib/revisionPriority";
+import { describeLevelRange, storedLevelRange } from "@/lib/scoring";
 import { buildWorkbenchRevisionSuggestions } from "@/lib/revisionSuggestions";
+import { toTeacherReviewView } from "@/lib/teacherReview";
+import { readThemeElevation } from "@/lib/themeElevation";
 
 export const dynamic = "force-dynamic";
 
@@ -32,10 +38,21 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
     prisma.submission.findFirst({
       where: { id: params.id, userId: user.id },
       include: {
-        analyses: { orderBy: { createdAt: "desc" }, take: 1 },
+        analyses: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          include: {
+            teacherReviews: {
+              orderBy: { updatedAt: "desc" },
+              take: 1,
+              include: { reviewer: { select: { name: true } } },
+            },
+          },
+        },
         errors: { orderBy: { charOffsetStart: "asc" } },
         revisionOrigin: { orderBy: { createdAt: "desc" }, take: 1 },
         aiModelPassage: true,
+        assignment: { select: { taskPrompt: true, modelPassageReleased: true } },
       },
     }),
     prisma.notebookEntry.findMany({
@@ -94,6 +111,8 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
     (typeof scores.dse_level === "string" ? (scores.dse_level as DseLevel) : undefined) ||
     dseLevelFromScore(baseScore);
   const wordCountShort = wordCount > 0 && wordCount < RECOMMENDED_WORD_COUNT;
+  const levelRange = storedLevelRange(dseLevel, analysis.scores, analysis.overallScore);
+  const teacherReview = analysis.teacherReviews[0] ? toTeacherReviewView(analysis.teacherReviews[0]) : null;
 
   const errorsByCategory = new Map<string, typeof submission.errors>();
   for (const error of submission.errors) {
@@ -105,6 +124,7 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
     { id: "feedback-summary", label: "導師回饋" },
     { id: "rubric-observations", label: "評分觀察" },
     ...(priorities.length > 0 ? [{ id: "revision-guide", label: "改寫指南" }] : []),
+    { id: "theme-elevation", label: "立意昇華" },
     { id: "annotations", label: "文中批註" },
     { id: "workbench", label: "訂正工作台" },
     { id: "model-passage", label: "AI 參考範文" },
@@ -123,6 +143,25 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
               <span className={submission.source === "typed" ? "pill" : "pill pill-warm"}>
                 {sourceLabel(submission.source)}
               </span>
+              {submission.assignment ? <span className="pill pill-warm">老師佈置的任務</span> : null}
+              {submission.genre ? <span className="pill">{submission.genre}</span> : null}
+              {submission.timedMinutes ? (
+                <span className="pill">
+                  ⏱ 限時 {submission.timedMinutes} 分鐘
+                  {submission.writingSeconds !== null ? `・用了 ${Math.max(1, Math.round(submission.writingSeconds / 60))} 分鐘` : ""}
+                </span>
+              ) : null}
+              {submission.taskPrompt ? (
+                <span className="pill" title={submission.taskPrompt}>
+                  題目：
+                  {submission.taskPrompt.length > 40
+                    ? `${submission.taskPrompt.slice(0, 40)}…`
+                    : submission.taskPrompt}
+                </span>
+              ) : null}
+              <a href={`/submissions/${submission.id}/report`} className="pill">
+                批改報告（可列印／PDF）
+              </a>
               {latestRevision ? (
                 <a href={`/submissions/${submission.id}/compare`} className="pill pill-positive">
                   已有修訂對照
@@ -149,8 +188,11 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
                 </span>
               </div>
               <p className="mt-1 text-[0.68rem] text-muted">
-                等級以基本分決定；錯別字扣分不影響等級。
+                等級按扣除錯別字後的總分決定，並受單項短板封頂限制。
               </p>
+              {levelRange ? (
+                <p className="mt-2 text-xs font-medium leading-5 text-ink/80">{describeLevelRange(levelRange)}</p>
+              ) : null}
               <p className="mt-2 text-xs leading-5 text-muted">{dseLevelNote(dseLevel)}</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -162,6 +204,30 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
           </div>
         </div>
       </section>
+
+      {teacherReview ? (
+        <section className="paper-panel border-good/30 bg-good/5 p-5 sm:p-6">
+          <p className="section-kicker">老師覆核</p>
+          <div className="mt-2 flex flex-wrap items-baseline gap-3">
+            <h2 className="text-2xl">
+              {teacherReview.reviewerName} 老師評定：Level {teacherReview.dseLevel}
+            </h2>
+            {teacherReview.dseLevel !== dseLevel ? <span className="pill">AI 估算 Level {dseLevel}</span> : null}
+          </div>
+          <ul className="mt-3 flex flex-wrap gap-2">
+            {DEFAULT_WRITING_RUBRIC.criteria.map((criterion) => (
+              <li key={criterion.key} className="pill">
+                {criterion.label} {teacherReview.scores[criterion.key]} / {criterion.maxScore}
+              </li>
+            ))}
+            {teacherReview.typoCount !== null ? <li className="pill">錯別字 {teacherReview.typoCount}</li> : null}
+          </ul>
+          {teacherReview.comment ? (
+            <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-ink/85">{teacherReview.comment}</p>
+          ) : null}
+          <p className="mt-2 text-xs text-muted">老師的評分與 AI 估算不同時，請以老師評分為準。</p>
+        </section>
+      ) : null}
 
       <SubmissionSectionTabs items={pageSections}>
         <section
@@ -218,7 +284,7 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
             id="rubric-observations"
             title="HKDSE 四項評分觀察"
             eyebrow={`內容 40% · 表達 30% · 結構 20% · 標點 10%${
-              wordCountShort ? `｜字數不足 ${RECOMMENDED_WORD_COUNT}：內容與結構已相應下調` : ""
+              wordCountShort ? `｜字數不足 ${RECOMMENDED_WORD_COUNT}：內容分已酌情下調` : ""
             }`}
             className="p-6"
           >
@@ -313,6 +379,13 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
           </section>
         ) : null}
 
+        <section id="theme-elevation" data-section-id="theme-elevation" className="scroll-mt-32">
+          <ThemeElevationPanel
+            submissionId={submission.id}
+            initial={readThemeElevation(analysis.themeElevation)}
+          />
+        </section>
+
         <section id="annotations" data-section-id="annotations" className="space-y-4 scroll-mt-32">
           <div>
             <p className="section-kicker">文中批註</p>
@@ -323,6 +396,7 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
           </div>
           <AnnotatedText
             text={submission.verifiedText}
+            submissionId={submission.id}
             errors={submission.errors.map((error) => ({
               id: error.id,
               category: error.category,
@@ -334,6 +408,7 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
               suggestion: error.suggestion,
               exampleFix: error.exampleFix,
               ocrSuspect: error.ocrSuspect,
+              studentReaction: error.studentReaction,
             }))}
           />
         </section>
@@ -358,12 +433,16 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
             </p>
           </div>
 
-          <ModelPassagePanel
-            submissionId={submission.id}
-            originalText={submission.verifiedText}
-            initialPassage={submission.aiModelPassage ? serializeModelPassage(submission.aiModelPassage) : null}
-            context="workbench"
-          />
+          {modelPassageLocked(submission) ? (
+            <ModelPassageLockedNotice />
+          ) : (
+            <ModelPassagePanel
+              submissionId={submission.id}
+              originalText={submission.verifiedText}
+              initialPassage={submission.aiModelPassage ? serializeModelPassage(submission.aiModelPassage) : null}
+              context="workbench"
+            />
+          )}
         </section>
 
         <section id="notebook-note" data-section-id="notebook-note" className="space-y-4 scroll-mt-32">

@@ -11,6 +11,7 @@ export const TAXONOMY: TaxonomyEntry[] = [
       { key: "形近字", description: "字形相近而混淆。" },
       { key: "同音字", description: "讀音相同但意義不同。" },
       { key: "詞語搭配不當", description: "動賓或修飾語組合不自然。" },
+      { key: "成語誤用", description: "錯用成語或熟語的意思、搭配或寫法。" },
     ],
   },
   {
@@ -20,6 +21,7 @@ export const TAXONOMY: TaxonomyEntry[] = [
       { key: "成分殘缺", description: "缺少主語、謂語或賓語等核心成分。" },
       { key: "搭配不當", description: "詞與詞之間的邏輯關係不成立。" },
       { key: "句式雜糅", description: "兩種句式混雜使用，導致結構混亂。" },
+      { key: "歐化句式", description: "受英語影響的冗長或生硬句式，如「作出…的決定」「在…的情況下」「當…的時候」。" },
     ],
   },
   {
@@ -28,6 +30,7 @@ export const TAXONOMY: TaxonomyEntry[] = [
       { key: "逗號誤用", description: "停頓位置不當。" },
       { key: "句號問號混淆", description: "陳述句與疑問句語氣不分。" },
       { key: "引號使用", description: "引用對話或特定稱謂符號不規範。" },
+      { key: "一逗到底", description: "多個意思完整的句子只用逗號連接，未適時以句號斷句。" },
     ],
   },
   {
@@ -53,6 +56,7 @@ export const TAXONOMY: TaxonomyEntry[] = [
       { key: "修辭貧乏", description: "缺乏比喻、擬人等文學手法。" },
       { key: "用詞單一", description: "重複使用相同詞彙，語言不夠豐富。" },
       { key: "語言乾澀", description: "敘述生硬，缺乏感染力。" },
+      { key: "粵語入文", description: "以粵語詞彙或口語入文，如「嘅」「咗」「冇」「佢哋」，應改用規範書面語。" },
     ],
   },
 ];

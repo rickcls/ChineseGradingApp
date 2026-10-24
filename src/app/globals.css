@@ -385,3 +385,25 @@ mark.ocr-suspect,
     padding-bottom: 1.5rem;
   }
 }
+
+/* Printable 批改報告 (/submissions/[id]/report): A4, white paper, keep the
+   red-pen colours and grid rows intact. */
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+
+  body {
+    background: #fff !important;
+  }
+
+  .report-page {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .manuscript-sheet > div {
+    break-inside: avoid;
+  }
+}

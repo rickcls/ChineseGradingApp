@@ -1,8 +1,11 @@
 import { AbilityRadar } from "@/components/AbilityRadar";
 import { CoachCard } from "@/components/CoachCard";
+import { MicroDrillPanel } from "@/components/MicroDrillPanel";
 import { StatePanel } from "@/components/StatePanel";
 import { prisma } from "@/lib/db";
 import { requireRole } from "@/lib/auth";
+import { toDrillView, type DrillView } from "@/lib/drillView";
+import { DRILL_MAX_CHECKS } from "@/lib/practiceDrill";
 import { DEFAULT_WRITING_RUBRIC } from "@/lib/rubric";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +19,7 @@ const STATUS_LABEL: Record<string, string> = {
 
 export default async function WeaknessReportPage() {
   const { appUser: user } = await requireRole(["student", "admin"]);
-  const [profiles, recentSubmissions] = await Promise.all([
+  const [profiles, recentSubmissions, recentDrills] = await Promise.all([
     prisma.weaknessProfile.findMany({
       where: { userId: user.id },
       orderBy: [{ status: "asc" }, { severityEwma: "desc" }],
@@ -27,7 +30,20 @@ export default async function WeaknessReportPage() {
       take: 6,
       include: { analyses: { orderBy: { createdAt: "desc" }, take: 1 } },
     }),
+    prisma.practiceDrill.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    }),
   ]);
+
+  // Latest drill per weakness, so a card can resume an unfinished one.
+  const latestDrill = new Map<string, DrillView>();
+  for (const drill of recentDrills) {
+    const key = `${drill.category}::${drill.subcategory}`;
+    const view = latestDrill.has(key) ? null : toDrillView(drill);
+    if (view) latestDrill.set(key, view);
+  }
 
   const analyses = recentSubmissions.map((submission) => submission.analyses[0]).filter(Boolean);
   const radarAxes = DEFAULT_WRITING_RUBRIC.criteria.map((criterion) => {
@@ -134,6 +150,14 @@ export default async function WeaknessReportPage() {
                         <p className="text-sm text-muted">
                           首次出現：{formatDate(profile.firstSeenAt)}。最近一次：{formatDate(profile.lastSeenAt)}。
                         </p>
+                        {status === "confirmed" || status === "improving" ? (
+                          <MicroDrillPanel
+                            category={profile.category}
+                            subcategory={profile.subcategory}
+                            initialDrill={latestDrill.get(`${profile.category}::${profile.subcategory}`) ?? null}
+                            maxChecks={DRILL_MAX_CHECKS}
+                          />
+                        ) : null}
                       </div>
                     </CoachCard>
                   ))}

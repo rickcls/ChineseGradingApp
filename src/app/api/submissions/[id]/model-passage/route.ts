@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireRole } from "@/lib/auth";
+import { modelPassageLocked } from "@/lib/assignments";
 import { generateModelPassage, serializeModelPassage } from "@/lib/modelPassage";
 import { normalizeRevisionPriorities } from "@/lib/revisionPriority";
 
@@ -17,11 +18,16 @@ export async function POST(_req: Request, props: { params: Promise<{ id: string 
     include: {
       analyses: { orderBy: { createdAt: "desc" }, take: 1 },
       task: true,
+      assignment: { select: { modelPassageReleased: true } },
     },
   });
 
   if (!submission) {
     return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
+
+  if (modelPassageLocked(submission)) {
+    return NextResponse.json({ error: "這是老師佈置的寫作任務，AI 參考範文要等老師開放後才可以使用。" }, { status: 403 });
   }
 
   const analysis = submission.analyses[0];
@@ -33,8 +39,8 @@ export async function POST(_req: Request, props: { params: Promise<{ id: string 
     const generated = await generateModelPassage({
       text: submission.verifiedText,
       gradeLevel: user.gradeLevel,
-      genre: submission.task?.genre,
-      taskPrompt: submission.task?.promptText || undefined,
+      genre: submission.genre || submission.task?.genre,
+      taskPrompt: submission.taskPrompt || submission.task?.promptText || undefined,
       coachFeedbackText: analysis.coachFeedbackText,
       revisionPriorities: normalizeRevisionPriorities(analysis.revisionPriorities),
     });

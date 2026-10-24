@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { requireRole } from "@/lib/auth";
 import { isGlobalUnlimitedCreditsEnabled } from "@/lib/credits";
+import { PROGRESS_LABEL, assignmentProgress, studentAssignmentWhere } from "@/lib/assignments";
 import { CoachCard } from "@/components/CoachCard";
 import { StatePanel } from "@/components/StatePanel";
 
@@ -10,7 +11,7 @@ export const dynamic = "force-dynamic";
 export default async function StudentDashboardPage() {
   const { appUser: user } = await requireRole(["student", "admin"]);
   const creditsUnlimited = isGlobalUnlimitedCreditsEnabled() || user.unlimitedCredits;
-  const [submissions, submissionStats, totalSubmissionCount, revisionsStarted, confirmed, improving] = await Promise.all([
+  const [submissions, submissionStats, totalSubmissionCount, revisionsStarted, confirmed, improving, assignments] = await Promise.all([
     prisma.submission.findMany({
       where: { userId: user.id },
       orderBy: { createdAt: "desc" },
@@ -40,7 +41,17 @@ export default async function StudentDashboardPage() {
       orderBy: { lastSeenAt: "desc" },
       take: 3,
     }),
+    prisma.assignment.findMany({
+      where: studentAssignmentWhere(user.clerkUserId),
+      orderBy: { createdAt: "desc" },
+      take: 6,
+      include: {
+        class: { select: { name: true } },
+        submissions: { where: { userId: user.id }, orderBy: { createdAt: "asc" }, select: { id: true, createdAt: true } },
+      },
+    }),
   ]);
+  const now = new Date();
 
   const analyses = submissions.map((submission) => submission.analyses[0]).filter(Boolean);
   const averageScore = analyses.length
@@ -91,6 +102,53 @@ export default async function StudentDashboardPage() {
           </div>
         </div>
       </section>
+
+      {assignments.length > 0 ? (
+        <section className="space-y-4">
+          <div>
+            <p className="section-kicker">老師佈置的任務</p>
+            <h2 className="mt-2 text-2xl">先完成老師交代的題目</h2>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {assignments.map((assignment) => {
+              const first = assignment.submissions[0];
+              const latest = assignment.submissions[assignment.submissions.length - 1];
+              const progress = assignmentProgress(assignment.dueAt, first?.createdAt ?? null, now);
+              return (
+                <article key={assignment.id} className="paper-panel p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs text-muted">
+                      {assignment.class.name}
+                      {assignment.dueAt ? `・截止 ${formatDate(assignment.dueAt)}` : ""}
+                    </span>
+                    <span
+                      className={[
+                        "pill",
+                        progress === "submitted" ? "pill-positive" : progress === "not_submitted" ? "" : "pill-warm",
+                      ].join(" ")}
+                    >
+                      {PROGRESS_LABEL[progress]}
+                    </span>
+                  </div>
+                  <h3 className="mt-2 font-serif text-xl text-ink">《{assignment.taskPrompt}》</h3>
+                  {assignment.genre ? <p className="mt-1 text-xs text-muted">{assignment.genre}</p> : null}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {latest ? (
+                      <Link href={`/submissions/${latest.id}`} className="btn-secondary">
+                        看批改結果
+                      </Link>
+                    ) : (
+                      <Link href={`/submissions/new?assignment=${assignment.id}`} className="btn-primary">
+                        開始寫
+                      </Link>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
 
       <section className="grid gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
         <CoachCard title="本週導師建議" eyebrow="先挑 1–2 項就好" tone="primary">
@@ -265,6 +323,7 @@ function sourceLabel(source: string) {
 
 function formatDate(value: Date) {
   return value.toLocaleDateString("zh-HK", {
+    timeZone: "Asia/Hong_Kong",
     month: "short",
     day: "numeric",
   });

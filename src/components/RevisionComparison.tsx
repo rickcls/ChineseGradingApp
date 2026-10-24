@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ModelPassageLockedNotice } from "@/components/ModelPassageLockedNotice";
 import { ModelPassagePanel } from "@/components/ModelPassagePanel";
 import { NotebookQuickPanel } from "@/components/NotebookQuickPanel";
 import { RevisionSuggestionList } from "@/components/RevisionSuggestionList";
@@ -22,7 +23,11 @@ type RevisionComparisonProps = {
   remainingEvidence: { id: string; evidenceSpan: string; suggestion: string }[];
   remainingAiSuggestions: RevisionSuggestionCard[];
   initialModelPassage: StoredModelPassage | null;
+  // A teacher's assignment keeps the AI 參考範文 locked until it is released.
+  modelPassageLocked?: boolean;
   recentNotebookEntries: NotebookEntrySummary[];
+  // Re-grade panel, rendered under the header.
+  regradeSlot?: React.ReactNode;
 };
 
 export function RevisionComparison({
@@ -39,7 +44,9 @@ export function RevisionComparison({
   remainingEvidence,
   remainingAiSuggestions,
   initialModelPassage,
+  modelPassageLocked = false,
   recentNotebookEntries,
+  regradeSlot,
 }: RevisionComparisonProps) {
   const [notebookEntries, setNotebookEntries] = useState(recentNotebookEntries);
   const delta = afterChars - beforeChars;
@@ -61,7 +68,7 @@ export function RevisionComparison({
             <div>
               <h1 className="text-3xl">這次修改，哪裡已經更清楚了？</h1>
               <p className="mt-2 max-w-2xl text-sm leading-7 text-ink/75">
-                這裡不是重新打分，而是幫你看見自己已經動手調整的地方。一次改好一兩項，已經很有價值。
+                先看看自己已經動手調整的地方；想知道等級有沒有變化，可以用下面的「重新評分」。一次改好一兩項，已經很有價值。
               </p>
             </div>
           </div>
@@ -75,6 +82,8 @@ export function RevisionComparison({
           </div>
         </div>
       </section>
+
+      {regradeSlot}
 
       <section className="grid gap-4 md:grid-cols-2">
         <div className="paper-panel p-5">
@@ -176,13 +185,17 @@ export function RevisionComparison({
         </div>
       </section>
 
-      <ModelPassagePanel
-        submissionId={submissionId}
-        originalText={beforeText}
-        initialPassage={initialModelPassage}
-        context="compare"
-        onNotebookEntryCreated={handleNotebookEntryCreated}
-      />
+      {modelPassageLocked ? (
+        <ModelPassageLockedNotice />
+      ) : (
+        <ModelPassagePanel
+          submissionId={submissionId}
+          originalText={beforeText}
+          initialPassage={initialModelPassage}
+          context="compare"
+          onNotebookEntryCreated={handleNotebookEntryCreated}
+        />
+      )}
     </div>
   );
 }

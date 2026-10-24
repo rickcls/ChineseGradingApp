@@ -1,0 +1,13 @@
+{
+  "id": "example-01",
+  "source": "Replace with where the grade came from (teacher, mock exam, HKEAA sample)",
+  "gradeLevel": "S6",
+  "genre": "記敘抒情文",
+  "taskPrompt": "題目",
+  "text": "把學生全文貼在這裡。這只是範本，請複製到 eval/gold/ 後再修改，並以老師的評分填寫 gold 欄位。",
+  "gold": {
+    "dseLevel": "3",
+    "scores": { "content": 20, "expression": 15, "structure": 10, "punctuation": 5 },
+    "typoCount": 1
+  }
+}

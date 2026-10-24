@@ -28,6 +28,10 @@ model AppUser {
   feedbackEvents    FeedbackEvent[]
   aiModelPassages   AiModelPassage[]
   notebookEntries   NotebookEntry[]
+  teacherReviews    TeacherReview[]
+  topicAnalyses     TopicAnalysis[]
+  practiceDrills    PracticeDrill[]
+  assignmentsCreated Assignment[]
 
   @@map("AppUser")
 }
@@ -57,8 +61,30 @@ model Class {
   createdAt           DateTime @default(now())
 
   studentClasses  StudentClass[]
+  assignments     Assignment[]
 
   @@index([teacherClerkUserId])
+}
+
+// A writing task a teacher sets for one class. Students submit against it with
+// their own credits; the AI 參考範文 stays locked until the teacher releases it.
+model Assignment {
+  id                   String    @id @default(cuid())
+  classId              String
+  createdByUserId      String
+  taskPrompt           String    @db.Text
+  genre                String?
+  instructions         String?   @db.Text
+  dueAt                DateTime?
+  modelPassageReleased Boolean   @default(false)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  class       Class        @relation(fields: [classId], references: [id], onDelete: Cascade)
+  createdBy   AppUser      @relation(fields: [createdByUserId], references: [id], onDelete: Cascade)
+  submissions Submission[]
+
+  @@index([classId, createdAt])
 }
 
 model StudentClass {
@@ -104,17 +130,25 @@ model Submission {
   ocrCharConfidences    Json?
   status                SubmissionStatus   @default(uploaded)
   taskId                String?
+  taskPrompt            String?            @db.Text // free-text 題目 typed by the student
+  genre                 String?            // 文體 chosen by the student; null = let the model decide
+  timedMinutes          Int?               // 限時模擬: the time limit chosen, if the essay was written under a timer
+  writingSeconds        Int?               // time actually used under the timer
+  assignmentId          String?            // set when written for a teacher's Assignment
   createdAt             DateTime           @default(now())
 
   user             AppUser              @relation(fields: [userId], references: [id], onDelete: Cascade)
   task             WritingTask?         @relation(fields: [taskId], references: [id])
+  assignment       Assignment?          @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
   analyses         Analysis[]
   errors           ErrorRecord[]
   revisionOrigin   RevisionSession[]    @relation("OriginalSubmission")
   aiModelPassage   AiModelPassage?
   notebookEntries  NotebookEntry[]
+  teacherReviews   TeacherReview[]
 
   @@index([userId, createdAt])
+  @@index([assignmentId])
 }
 
 model Analysis {
@@ -129,11 +163,13 @@ model Analysis {
   coachFeedbackText  String    @db.Text
   revisionPriorities Json      // string[]
   strengths          Json      // string[]
+  themeElevation     Json?     // 立意昇華 suggestions, generated on demand (src/lib/themeElevation.ts)
   createdAt          DateTime  @default(now())
 
-  submission  Submission  @relation(fields: [submissionId], references: [id], onDelete: Cascade)
-  rubric      Rubric?     @relation(fields: [rubricId], references: [id])
-  errors      ErrorRecord[]
+  submission      Submission      @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  rubric          Rubric?         @relation(fields: [rubricId], references: [id])
+  errors          ErrorRecord[]
+  teacherReviews  TeacherReview[]
 }
 
 model ErrorRecord {
@@ -149,6 +185,7 @@ model ErrorRecord {
   exampleFix       String?  @db.Text
   severity         Int      // 1..3
   ocrSuspect       Boolean  @default(false)
+  studentReaction  String?  // latest "helpful" | "wrong" | "confusing"; "wrong" keeps it out of weakness profiles
   confidence       Float    @default(0.8)
   createdAt        DateTime @default(now())
 
@@ -157,6 +194,65 @@ model ErrorRecord {
 
   @@index([submissionId])
   @@index([category, subcategory])
+}
+
+// A teacher's own marking of an analysed essay. Shown to the student and
+// exportable as calibration data (scripts/export-teacher-reviews.ts).
+model TeacherReview {
+  id              String   @id @default(cuid())
+  submissionId    String
+  analysisId      String
+  reviewerUserId  String
+  scores          Json     // { content, expression, structure, punctuation }
+  typoCount       Int?
+  dseLevel        String
+  comment         String?  @db.Text
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  submission  Submission  @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  analysis    Analysis    @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  reviewer    AppUser     @relation(fields: [reviewerUserId], references: [id], onDelete: Cascade)
+
+  @@unique([analysisId, reviewerUserId])
+  @@index([submissionId])
+}
+
+// 審題助手 result for a topic a student is about to write on. Cached per
+// (user, topic, genre, prompt version) and used for the daily limit.
+model TopicAnalysis {
+  id            String   @id @default(cuid())
+  userId        String
+  taskPrompt    String   @db.Text
+  genre         String?
+  gradeLevel    String
+  result        Json
+  modelName     String
+  promptVersion String
+  createdAt     DateTime @default(now())
+
+  user  AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+// 150-字 micro-drill generated from a weakness (category, subcategory).
+// Practice only: it never changes weakness profiles.
+model PracticeDrill {
+  id           String    @id @default(cuid())
+  userId       String
+  category     String
+  subcategory  String
+  task         Json
+  response     String?   @db.Text
+  feedback     Json?
+  attempts     Int       @default(0)
+  createdAt    DateTime  @default(now())
+  completedAt  DateTime?
+
+  user  AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
 
 enum WeaknessStatus {
@@ -192,6 +288,7 @@ model RevisionSession {
   revisedText            String   @db.Text
   targetedErrorIds       String[]
   improvementDelta       Json?
+  regrade                Json?    // re-grade of revisedText (src/lib/regradeCompare.ts); kept off Submission so it never feeds weakness tracking
   createdAt              DateTime @default(now())
 
   user                AppUser     @relation(fields: [userId], references: [id], onDelete: Cascade)
