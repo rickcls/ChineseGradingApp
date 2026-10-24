@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db";
 import { layoutManuscript, markKindFor } from "@/lib/manuscript";
 import { normalizeRevisionPriorities } from "@/lib/revisionPriority";
 import { DEFAULT_WRITING_RUBRIC, dseLevelFromScore, type DseLevel } from "@/lib/rubric";
+import { storedLevelRange } from "@/lib/scoring";
 import { toTeacherReviewView } from "@/lib/teacherReview";
 
 export const dynamic = "force-dynamic";
@@ -38,6 +39,7 @@ export default async function SubmissionReportPage(props: { params: Promise<{ id
   const scores = analysis.scores as Record<string, unknown>;
   const dseLevel: DseLevel =
     typeof scores.dse_level === "string" ? (scores.dse_level as DseLevel) : dseLevelFromScore(analysis.overallScore);
+  const levelRange = storedLevelRange(dseLevel, analysis.scores, analysis.overallScore);
   const teacherReview = analysis.teacherReviews[0] ? toTeacherReviewView(analysis.teacherReviews[0]) : null;
   const strengths = Array.isArray(analysis.strengths) ? (analysis.strengths as unknown[]).filter((s): s is string => typeof s === "string") : [];
   const priorities = normalizeRevisionPriorities(analysis.revisionPriorities).slice(0, 3);
@@ -76,7 +78,9 @@ export default async function SubmissionReportPage(props: { params: Promise<{ id
           <div className="flex gap-3">
             <div className="rounded-[1rem] border-2 px-4 py-3 text-center" style={{ borderColor: "#c8372d", color: "#c8372d" }}>
               <div className="font-serif text-3xl leading-none">L{dseLevel}</div>
-              <div className="mt-1 text-[0.68rem]">AI 估算等級</div>
+              <div className="mt-1 text-[0.68rem]">
+                {levelRange ? `AI 估算・可能 L${levelRange.low}–L${levelRange.high}` : "AI 估算等級"}
+              </div>
             </div>
             {teacherReview ? (
               <div className="rounded-[1rem] border-2 border-good px-4 py-3 text-center text-good">

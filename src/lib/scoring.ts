@@ -1,4 +1,12 @@
-import { minDseLevel, type DseLevel, type RubricDef } from "./rubric";
+import {
+  DEFAULT_WRITING_RUBRIC,
+  dseLevelFromScore,
+  dseLevelRank,
+  maxDseLevel,
+  minDseLevel,
+  type DseLevel,
+  type RubricDef,
+} from "./rubric";
 
 // Deterministic post-processing rules from dse-chinese-writing-rubric.md.
 // Kept free of I/O so they can be unit-tested without a model call.
@@ -61,6 +69,48 @@ export function applyShortBoardLevelCap(
   }
 
   return minDseLevel(level, cap);
+}
+
+// AI grading of the same essay varies by a couple of points between runs.
+export const SCORE_NOISE_POINTS = 2;
+
+export type LevelRange = { low: DseLevel; high: DseLevel; reason: "boundary" | "holistic" };
+
+// The levels the essay could plausibly be at: the final total ± SCORE_NOISE_POINTS
+// (short-board caps included), widened to the score-supported level when the holistic
+// level came out lower. Null when every reading gives the same level.
+export function levelRange(
+  level: DseLevel,
+  overallScore: number,
+  scores: Record<string, number>,
+  rubric: RubricDef,
+): LevelRange | null {
+  const scoreLevel = (score: number) =>
+    applyShortBoardLevelCap(dseLevelFromScore(Math.max(0, Math.min(100, score))), scores, rubric);
+  const low = minDseLevel(level, scoreLevel(overallScore - SCORE_NOISE_POINTS));
+  const high = maxDseLevel(level, scoreLevel(overallScore + SCORE_NOISE_POINTS));
+  if (low === high) return null;
+  const reason = dseLevelRank(level) < dseLevelRank(scoreLevel(overallScore)) ? "holistic" : "boundary";
+  return { low, high, reason };
+}
+
+// levelRange for a stored Analysis row. Its scores JSON also holds non-criterion fields;
+// a missing criterion score is skipped by the caps rather than read as 0.
+export function storedLevelRange(
+  level: DseLevel,
+  storedScores: unknown,
+  overallScore: number,
+  rubric: RubricDef = DEFAULT_WRITING_RUBRIC,
+): LevelRange | null {
+  const raw = (storedScores && typeof storedScores === "object" ? storedScores : {}) as Record<string, unknown>;
+  const scores = Object.fromEntries(rubric.criteria.map((c) => [c.key, Number(raw[c.key])]));
+  return levelRange(level, overallScore, scores, rubric);
+}
+
+export function describeLevelRange(range: LevelRange): string {
+  return range.reason === "holistic"
+    ? `各項分數支持較高等級，但整體判斷較保守，所以取較低者；實際可能介乎 Level ${range.low}–${range.high}。`
+    : `總分接近等級分界，AI 評分有約 ±${SCORE_NOISE_POINTS} 分的正常波動，實際可能介乎 Level ${range.low}–${range.high}。`;
 }
 
 // The typo deduction must be traceable to highlighted evidence, so count the

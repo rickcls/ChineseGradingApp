@@ -3,9 +3,12 @@ import { DEFAULT_WRITING_RUBRIC, dseLevelFromScore, typoBonus } from "../src/lib
 import {
   applyShortBoardLevelCap,
   countEvidenceTypos,
+  describeLevelRange,
   enforceContentLedCap,
   enforceStructureBandCap,
   enforceWordCountContentCap,
+  levelRange,
+  storedLevelRange,
 } from "../src/lib/scoring";
 
 const rubric = DEFAULT_WRITING_RUBRIC;
@@ -130,5 +133,39 @@ describe("countEvidenceTypos", () => {
         { category: "語法", subcategory: "語序" },
       ]),
     ).toBe(3);
+  });
+});
+
+describe("levelRange", () => {
+  it("shows no range in the middle of a band", () => {
+    expect(levelRange("5", 74, scores(30, 22, 15, 7), rubric)).toBeNull();
+  });
+
+  it("spans both levels within ±2 points of a boundary", () => {
+    expect(levelRange("4", 69, scores(28, 20, 14, 7), rubric)).toEqual({ low: "4", high: "5", reason: "boundary" });
+    expect(levelRange("5", 70, scores(28, 21, 14, 7), rubric)).toEqual({ low: "4", high: "5", reason: "boundary" });
+  });
+
+  it("does not offer a level the short-board cap rules out", () => {
+    // 標點 N=6 caps the essay at Level 4 however the total moves.
+    expect(levelRange("4", 69, scores(28, 21, 14, 6), rubric)).toBeNull();
+  });
+
+  it("widens to the score-supported level when the holistic level is lower", () => {
+    const range = levelRange("4", 75, scores(30, 22, 15, 8), rubric);
+    expect(range).toEqual({ low: "4", high: "5", reason: "holistic" });
+    expect(describeLevelRange(range!)).toContain("整體判斷較保守");
+  });
+
+  it("describes a boundary range with the noise margin", () => {
+    expect(describeLevelRange({ low: "4", high: "5", reason: "boundary" })).toBe(
+      "總分接近等級分界，AI 評分有約 ±2 分的正常波動，實際可能介乎 Level 4–5。",
+    );
+  });
+
+  it("reads stored analysis scores and skips missing criteria", () => {
+    const stored = { content: 28, expression: 20, structure: 14, punctuation: 7, word_count: 650, dse_level: "4" };
+    expect(storedLevelRange("4", stored, 69)).toEqual({ low: "4", high: "5", reason: "boundary" });
+    expect(storedLevelRange("5", { dse_level: "5" }, 80)).toBeNull();
   });
 });

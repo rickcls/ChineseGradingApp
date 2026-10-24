@@ -21,6 +21,7 @@ import {
 import { serializeModelPassage } from "@/lib/modelPassage";
 import { serializeNotebookEntry } from "@/lib/notebook";
 import { normalizeRevisionPriorities } from "@/lib/revisionPriority";
+import { describeLevelRange, storedLevelRange } from "@/lib/scoring";
 import { buildWorkbenchRevisionSuggestions } from "@/lib/revisionSuggestions";
 import { toTeacherReviewView } from "@/lib/teacherReview";
 import { readThemeElevation } from "@/lib/themeElevation";
@@ -107,6 +108,7 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
     (typeof scores.dse_level === "string" ? (scores.dse_level as DseLevel) : undefined) ||
     dseLevelFromScore(baseScore);
   const wordCountShort = wordCount > 0 && wordCount < RECOMMENDED_WORD_COUNT;
+  const levelRange = storedLevelRange(dseLevel, analysis.scores, analysis.overallScore);
   const teacherReview = analysis.teacherReviews[0] ? toTeacherReviewView(analysis.teacherReviews[0]) : null;
 
   const errorsByCategory = new Map<string, typeof submission.errors>();
@@ -184,6 +186,9 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
               <p className="mt-1 text-[0.68rem] text-muted">
                 等級按扣除錯別字後的總分決定，並受單項短板封頂限制。
               </p>
+              {levelRange ? (
+                <p className="mt-2 text-xs font-medium leading-5 text-ink/80">{describeLevelRange(levelRange)}</p>
+              ) : null}
               <p className="mt-2 text-xs leading-5 text-muted">{dseLevelNote(dseLevel)}</p>
             </div>
             <div className="grid grid-cols-2 gap-3">

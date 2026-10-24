@@ -1,5 +1,6 @@
 import type { AnalysisResult } from "./analysis";
 import { DEFAULT_WRITING_RUBRIC, dseLevelFromScore, dseLevelRank, type DseLevel } from "./rubric";
+import { SCORE_NOISE_POINTS } from "./scoring";
 
 // Re-grading a revision: a compact snapshot of the new grade (stored on
 // RevisionSession.regrade) and a before → after comparison with the
@@ -30,10 +31,6 @@ export type StoredRegrade = GradeSnapshot & {
   promptVersion: string;
   gradedAt: string;
 };
-
-// AI grading of the same text varies by a couple of points between runs, so
-// a change this small is not evidence of improvement either way.
-export const NOISE_POINTS = 2;
 
 export function regradeFromAnalysis(
   result: AnalysisResult,
@@ -123,7 +120,8 @@ export function compareGrades(before: GradeSnapshot, after: GradeSnapshot): Grad
     overallBefore: before.overallScore,
     overallAfter: after.overallScore,
     overallDelta,
-    withinNoise: Math.abs(overallDelta) <= NOISE_POINTS,
+    // A change this small is within run-to-run variation, not evidence of improvement either way.
+    withinNoise: Math.abs(overallDelta) <= SCORE_NOISE_POINTS,
     criteria: DEFAULT_WRITING_RUBRIC.criteria.map((c) => {
       const b = before.scores[c.key] ?? 0;
       const a = after.scores[c.key] ?? 0;

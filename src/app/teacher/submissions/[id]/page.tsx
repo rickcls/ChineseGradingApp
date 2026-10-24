@@ -4,7 +4,8 @@ import { TeacherReviewForm } from "@/components/TeacherReviewForm";
 import { requireRole } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { normalizeRevisionPriorities } from "@/lib/revisionPriority";
-import { DEFAULT_WRITING_RUBRIC } from "@/lib/rubric";
+import { DEFAULT_WRITING_RUBRIC, DSE_LEVELS } from "@/lib/rubric";
+import { storedLevelRange } from "@/lib/scoring";
 import { teacherSubmissionScope } from "@/lib/teacherReview";
 
 export const dynamic = "force-dynamic";
@@ -35,7 +36,8 @@ export default async function TeacherSubmissionDetailPage(props: { params: Promi
   const strengths = normalizeStringArray(analysis?.strengths);
   const priorities = normalizeRevisionPriorities(analysis?.revisionPriorities).map((priority) => priority.issue);
   const aiScores = (analysis?.scores ?? {}) as Record<string, unknown>;
-  const aiLevel = typeof aiScores.dse_level === "string" ? aiScores.dse_level : null;
+  const aiLevel = DSE_LEVELS.find((level) => level === aiScores.dse_level) ?? null;
+  const aiRange = analysis && aiLevel ? storedLevelRange(aiLevel, aiScores, analysis.overallScore) : null;
   const myReview = analysis?.teacherReviews[0] ?? null;
   const reviewScores = (myReview?.scores ?? aiScores) as Record<string, unknown>;
   const flaggedCount = submission.errors.filter((error) => error.studentReaction === "wrong").length;
@@ -59,6 +61,7 @@ export default async function TeacherSubmissionDetailPage(props: { params: Promi
             </div>
             <div className="text-xs text-muted">
               {analysis ? `AI 評估 · 總分 ${analysis.overallScore.toFixed(0)}` : "等待分析"}
+              {aiRange ? `・可能 L${aiRange.low}–L${aiRange.high}` : ""}
             </div>
           </div>
         </div>

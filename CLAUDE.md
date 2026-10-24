@@ -23,7 +23,7 @@ src/
     db.ts                            — Prisma singleton
     anthropic.ts                     — Dual-path LLM adapter: Anthropic SDK or OpenRouter with fallback + timeout
     analysis.ts                      — LLM prompt build, response parse, Zod validation, offset realignment
-    scoring.ts                       — Deterministic score caps from the rubric md (word count, structure band, content-led, short-board, evidence-backed typo count)
+    scoring.ts                       — Deterministic score caps from the rubric md (word count, structure band, content-led, short-board, evidence-backed typo count) + the uncertain-level range
     rubric.ts                        — HKDSE 4-criterion rubric + DSE level/score mappings + typo deduction
     rubricGuide.ts                   — Loads dse-chinese-writing-rubric.md (the source of truth) into the prompt
     taxonomy.ts                      — Error taxonomy: 字詞/語法/標點/結構/內容/表達 × subcategories
@@ -200,6 +200,8 @@ DSE levels from the final score (after typo deduction), following the md's N mat
    - content N ≤ 2 → expression and structure ≤ N4;
    - short-board level cap (any N ≤ 6 → Level 4 max, N ≤ 4 → Level 3 max);
    - final level = lower of the model's holistic level and the score-derived level.
+
+**Level range (`levelRange` / `storedLevelRange` in `scoring.ts`):** the displayed level stays the conservative point estimate, but when the final total ± 2 points (`SCORE_NOISE_POINTS`, short-board caps included) crosses a band boundary, or the holistic level came out lower than the scores support, the submission page, the 批改報告 and the teacher page also show 「可能介乎 Level X–Y」. The same ±2 threshold labels re-grade changes as normal AI variation.
 
 ---
 

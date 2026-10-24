@@ -170,6 +170,10 @@ export function minDseLevel(a: DseLevel, b: DseLevel): DseLevel {
   return dseLevelRank(a) <= dseLevelRank(b) ? a : b;
 }
 
+export function maxDseLevel(a: DseLevel, b: DseLevel): DseLevel {
+  return dseLevelRank(a) >= dseLevelRank(b) ? a : b;
+}
+
 // 建議分數區間（扣除錯別字後的最終總分）——用於 prompt 錨定
 export function scoreRangeForLevel(level: DseLevel): { min: number; max: number } {
   const idx = DSE_LEVEL_BANDS.findIndex((b) => b.level === level);
