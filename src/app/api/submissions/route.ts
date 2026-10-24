@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireRole } from "@/lib/auth";
+import { studentAssignmentWhere } from "@/lib/assignments";
 import { analyzeSubmission } from "@/lib/analysis";
 import {
   deductCreditForSubmission,
@@ -27,6 +28,8 @@ const Body = z.object({
   // 限時模擬: chosen time limit and the time used under it.
   timedMinutes: z.number().int().min(10).max(180).optional(),
   writingSeconds: z.number().int().min(0).optional(),
+  // Written for a teacher's assignment; its topic and genre replace the student's.
+  assignmentId: z.string().min(1).optional(),
 });
 
 type Body = z.infer<typeof Body>;
@@ -46,11 +49,20 @@ export async function POST(req: Request) {
 
   const gradeLevel = parsed.data.gradeLevel || user.gradeLevel;
 
-  if (parsed.data.stream) {
-    return streamingResponse(parsed.data, user.id, gradeLevel);
+  let body = parsed.data;
+  if (body.assignmentId) {
+    const assignment = await prisma.assignment.findFirst({
+      where: { id: body.assignmentId, ...studentAssignmentWhere(user.clerkUserId) },
+    });
+    if (!assignment) return NextResponse.json({ error: "找不到這份寫作任務。" }, { status: 404 });
+    body = { ...body, taskPrompt: assignment.taskPrompt, genre: assignment.genre || body.genre };
   }
 
-  return jsonResponse(parsed.data, user.id, gradeLevel);
+  if (body.stream) {
+    return streamingResponse(body, user.id, gradeLevel);
+  }
+
+  return jsonResponse(body, user.id, gradeLevel);
 }
 
 function submissionData(body: Body, userId: string) {
@@ -68,6 +80,7 @@ function submissionData(body: Body, userId: string) {
       body.timedMinutes && body.writingSeconds !== undefined
         ? Math.min(body.writingSeconds, body.timedMinutes * 60)
         : null,
+    assignmentId: body.assignmentId || null,
     status: "verified" as const,
   };
 }

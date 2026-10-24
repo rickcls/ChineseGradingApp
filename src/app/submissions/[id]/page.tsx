@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { requireRole } from "@/lib/auth";
 import { AnnotatedText } from "@/components/AnnotatedText";
 import { CoachCard } from "@/components/CoachCard";
+import { ModelPassageLockedNotice } from "@/components/ModelPassageLockedNotice";
 import { ModelPassagePanel } from "@/components/ModelPassagePanel";
 import { NotebookQuickPanel } from "@/components/NotebookQuickPanel";
 import { RevisionComposer } from "@/components/RevisionComposer";
@@ -18,6 +19,7 @@ import {
   RECOMMENDED_WORD_COUNT,
   totalMaxScore,
 } from "@/lib/rubric";
+import { modelPassageLocked } from "@/lib/assignments";
 import { serializeModelPassage } from "@/lib/modelPassage";
 import { serializeNotebookEntry } from "@/lib/notebook";
 import { normalizeRevisionPriorities } from "@/lib/revisionPriority";
@@ -50,6 +52,7 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
         errors: { orderBy: { charOffsetStart: "asc" } },
         revisionOrigin: { orderBy: { createdAt: "desc" }, take: 1 },
         aiModelPassage: true,
+        assignment: { select: { taskPrompt: true, modelPassageReleased: true } },
       },
     }),
     prisma.notebookEntry.findMany({
@@ -140,6 +143,7 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
               <span className={submission.source === "typed" ? "pill" : "pill pill-warm"}>
                 {sourceLabel(submission.source)}
               </span>
+              {submission.assignment ? <span className="pill pill-warm">老師佈置的任務</span> : null}
               {submission.genre ? <span className="pill">{submission.genre}</span> : null}
               {submission.timedMinutes ? (
                 <span className="pill">
@@ -429,12 +433,16 @@ export default async function SubmissionDetailPage(props: { params: Promise<{ id
             </p>
           </div>
 
-          <ModelPassagePanel
-            submissionId={submission.id}
-            originalText={submission.verifiedText}
-            initialPassage={submission.aiModelPassage ? serializeModelPassage(submission.aiModelPassage) : null}
-            context="workbench"
-          />
+          {modelPassageLocked(submission) ? (
+            <ModelPassageLockedNotice />
+          ) : (
+            <ModelPassagePanel
+              submissionId={submission.id}
+              originalText={submission.verifiedText}
+              initialPassage={submission.aiModelPassage ? serializeModelPassage(submission.aiModelPassage) : null}
+              context="workbench"
+            />
+          )}
         </section>
 
         <section id="notebook-note" data-section-id="notebook-note" className="space-y-4 scroll-mt-32">

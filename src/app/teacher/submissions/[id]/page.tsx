@@ -27,6 +27,7 @@ export default async function TeacherSubmissionDetailPage(props: { params: Promi
         include: { teacherReviews: { where: { reviewerUserId: appUser.id } } },
       },
       errors: { orderBy: { charOffsetStart: "asc" } },
+      assignment: { select: { id: true, taskPrompt: true } },
     },
   });
 
@@ -54,6 +55,11 @@ export default async function TeacherSubmissionDetailPage(props: { params: Promi
             <p className="section-kicker">學生作品</p>
             <h1 className="mt-2 text-3xl sm:text-4xl">{submission.user.name}</h1>
             <p className="mt-2 text-sm text-muted">{formatDate(submission.createdAt)}</p>
+            {submission.assignment ? (
+              <Link href={`/teacher/assignments/${submission.assignment.id}`} className="pill mt-2 inline-flex">
+                寫作任務：《{submission.assignment.taskPrompt}》
+              </Link>
+            ) : null}
           </div>
           <div className="rounded-[1.15rem] border border-accent/20 bg-accent/5 px-5 py-4">
             <div className="font-serif text-4xl text-ink">

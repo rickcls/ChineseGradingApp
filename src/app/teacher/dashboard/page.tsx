@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { teacherClassWhere } from "@/lib/assignments";
 import { requireRole } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
@@ -12,6 +13,16 @@ export default async function TeacherDashboardPage() {
     where: isAdmin ? undefined : { teacherClerkUserId: clerkUserId },
     orderBy: { createdAt: "desc" },
     include: { studentClasses: true },
+  });
+
+  const assignments = await prisma.assignment.findMany({
+    where: { class: teacherClassWhere({ clerkUserId, isAdmin }) },
+    orderBy: { createdAt: "desc" },
+    take: 10,
+    include: {
+      class: { select: { name: true, _count: { select: { studentClasses: true } } } },
+      submissions: { select: { userId: true } },
+    },
   });
 
   const studentClerkUserIds = Array.from(
@@ -63,6 +74,47 @@ export default async function TeacherDashboardPage() {
       </section>
 
       <section className="space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="section-kicker">寫作任務</p>
+            <h2 className="mt-2 text-2xl">佈置題目，追蹤全班交稿</h2>
+          </div>
+          {classes.length > 0 ? (
+            <Link href="/teacher/assignments/new" className="btn-primary">
+              佈置新任務
+            </Link>
+          ) : null}
+        </div>
+        {assignments.length === 0 ? (
+          <div className="paper-panel p-5 text-sm text-muted">
+            還沒有寫作任務。佈置後，學生會在主頁看到題目，你可以在任務頁看到交稿情況、等級分佈和全班最常見的問題。
+          </div>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2">
+            {assignments.map((assignment) => (
+              <Link
+                key={assignment.id}
+                href={`/teacher/assignments/${assignment.id}`}
+                className="paper-panel block p-5 transition hover:border-accent/25"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
+                  <span>
+                    {assignment.class.name}
+                    {assignment.dueAt ? `・截止 ${formatDate(assignment.dueAt)}` : ""}
+                  </span>
+                  <span className="pill">
+                    已交 {new Set(assignment.submissions.map((submission) => submission.userId)).size} /{" "}
+                    {assignment.class._count.studentClasses}
+                  </span>
+                </div>
+                <h3 className="mt-2 font-serif text-xl text-ink">《{assignment.taskPrompt}》</h3>
+              </Link>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="space-y-4">
         <div>
           <p className="section-kicker">已分配學生</p>
           <h2 className="mt-2 text-2xl">按班級查看</h2>
@@ -75,7 +127,12 @@ export default async function TeacherDashboardPage() {
               <article key={klass.id} className="paper-panel p-5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="text-xl text-ink">{klass.name}</h3>
-                  <span className="pill">{klass.studentClasses.length} 位學生</span>
+                  <div className="flex items-center gap-2">
+                    <span className="pill">{klass.studentClasses.length} 位學生</span>
+                    <Link href={`/teacher/assignments/new?class=${klass.id}`} className="pill">
+                      佈置任務
+                    </Link>
+                  </div>
                 </div>
                 <ul className="mt-4 space-y-2">
                   {klass.studentClasses.map((membership) => {
@@ -156,6 +213,7 @@ function previewFor(text: string, length: number) {
 
 function formatDate(value: Date) {
   return value.toLocaleDateString("zh-HK", {
+    timeZone: "Asia/Hong_Kong",
     year: "numeric",
     month: "short",
     day: "numeric",

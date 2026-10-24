@@ -41,6 +41,8 @@ src/
     regradeCompare.ts                — Re-grade snapshot of a revision + before → after comparison (level, criteria, issue counts, noise)
     practiceDrill.ts / drillView.ts  — 150-字 weakness drills: task generation from the student's own errors, requirement check
     examTimer.ts                     — 限時模擬: countdown phases, pacing vs 600 字, local draft format
+    assignments.ts                   — Teacher assignments: input validation, class/student scopes, progress (未交/已交/遲交/逾期), model-passage lock, class common issues + level spread
+    genres.ts                        — Shared 文體 options (essay form + assignments)
     notebook.ts                      — Learning note serialization (manual/phrase/lesson types)
     modelPassage.ts                  — AI-generated model essay management
     revisionSuggestions.ts           — Workbench suggestion prioritization (top 5 + top 2 errors)
@@ -55,6 +57,8 @@ src/
       new/page.tsx                   — Essay intake form: grade, topic, typed/photo/scan input
       [id]/page.tsx                  — 9-tab detail view (see UI pages below)
       [id]/report/page.tsx           — Printable 批改報告: 原稿紙 grid with red-pen marks, numbered notes, scores (print → PDF)
+    teacher/assignments/new/page.tsx — Teacher: set a writing task for a class
+    teacher/assignments/[id]/page.tsx — Teacher: one task's roster (submission status, level), level spread, class common issues, release/delete controls
     api/
       submissions/route.ts           — POST: create → analyse → aggregate → deduct credit (SSE streaming)
       submissions/[id]/route.ts      — GET / DELETE single submission
@@ -66,6 +70,8 @@ src/
       submissions/[id]/notebook-note/route.ts — POST: create learning note from submission
       submissions/[id]/errors/[errorId]/feedback/route.ts — POST: student reaction to an annotation (helpful/wrong/confusing)
       teacher/submissions/[id]/review/route.ts — POST: teacher's own scores/level/comment (upsert per teacher)
+      teacher/assignments/route.ts   — POST: create an assignment for a class the teacher manages
+      teacher/assignments/[id]/route.ts — PATCH: release/re-lock the AI 參考範文 or change the due date; DELETE (essays are kept, unlinked)
       topic-analysis/route.ts        — POST: 審題助手 (free; cached per topic; 20 new topics per user per 24h)
       submissions/[id]/theme-elevation/route.ts — POST: generate 立意昇華 suggestions, stored on Analysis.themeElevation
       notebook/route.ts              — POST: standalone notebook entry
@@ -88,6 +94,9 @@ src/
     PrintButton.tsx                  — Client: window.print() for the report page
     RegradePanel.tsx                 — Client: 重新評分 button / before → after result on the compare page
     MicroDrillPanel.tsx              — Client: 150-字 drill on confirmed/improving weakness cards
+    ModelPassageLockedNotice.tsx     — Shown instead of the AI 參考範文 while an assignment keeps it locked
+    teacher/AssignmentForm.tsx       — Client: new-assignment form (class, topic, 文體, instructions, due date)
+    teacher/AssignmentControls.tsx   — Client: release/re-lock the AI 參考範文, delete the assignment
     NotebookWorkspace.tsx / NotebookQuickPanel.tsx — Note-taking UI
     admin/
       UserDirectory.tsx              — User list with role/credit columns
@@ -113,7 +122,7 @@ eval/
 | Model | Purpose |
 |---|---|
 | `AppUser` | One row per Clerk user. Has `role` (student/teacher/admin), `credits`, `unlimitedCredits`, `gradeLevel`, `displayName`. |
-| `Submission` | `rawText` (untouched OCR transcript for photo/scan, else same as typed text), `verifiedText` (what was graded), source mode (typed/photo/scan), `taskPrompt` (題目), `genre` (文體, null = model decides), `timedMinutes` / `writingSeconds` (限時模擬 limit and time used), status enum (uploaded/verified/analyzed/failed), OCR fields. |
+| `Submission` | `rawText` (untouched OCR transcript for photo/scan, else same as typed text), `verifiedText` (what was graded), source mode (typed/photo/scan), `taskPrompt` (題目), `genre` (文體, null = model decides), `timedMinutes` / `writingSeconds` (限時模擬 limit and time used), `assignmentId` (set when written for a teacher's assignment), status enum (uploaded/verified/analyzed/failed), OCR fields. |
 | `Analysis` | HKDSE rubric scores (JSON), DSE level, overall score, model name, coach feedback, strengths, revision priorities, `themeElevation` (立意昇華 JSON, generated on demand). |
 | `ErrorRecord` | Per-error row: category, subcategory, evidence span, char offsets, suggestion, severity 1–3, `ocrSuspect` flag, `studentReaction` (latest helpful/wrong/confusing). |
 | `WeaknessProfile` | Per `(user, category, subcategory)`: EWMA severity, evidence count, 10-submission rolling window (JSON), status enum. |
@@ -122,6 +131,7 @@ eval/
 | `AiModelPassage` | AI-generated model essay with highlights, linked to a submission. |
 | `CreditTransaction` | Audit trail for all credit changes (deduction, refund, admin grant) with attribution. |
 | `Class` / `StudentClass` | Teacher class management + student enrolment. |
+| `Assignment` | A writing task for one class: `taskPrompt`, `genre`, `instructions`, `dueAt` (end of the chosen day, HK time), `modelPassageReleased` (default false), creator. Deleting it unlinks, never deletes, students' essays. |
 | `WritingTask` | Writing prompts with grade, genre, guidance, suggested length. |
 | `FeedbackEvent` | Append-only log of student reactions to errors (helpful/wrong/confusing/cleared) — for prompt tuning. |
 | `PracticeDrill` | 150-字 drill per (user, category, subcategory): task JSON, latest response and feedback, attempts, `completedAt`. Practice only; never changes weakness profiles. |
@@ -228,6 +238,7 @@ Excluded from aggregation (`countsTowardWeakness`): `ocrSuspect = true` errors a
 
 - Each submission costs 1 credit (students and admins); re-grading a revision also costs 1 credit (reason `revision_regrade`, refunded as `revision_regrade_refund` on failure).
 - 審題助手, 立意昇華, model passages, notebook notes and 150-字 drills are free (審題 and drills have daily limits).
+- Essays written for a teacher's assignment cost the student 1 credit like any other submission.
 - Credits are deducted before analysis begins; automatically refunded on failure.
 - `GLOBAL_UNLIMITED_CREDITS=true` env var bypasses all credit checks (for UAT/dev).
 - Per-user `unlimitedCredits` flag bypasses checks for that user only.
@@ -267,6 +278,7 @@ Six top-level categories, each with subcategories:
 ## UI pages
 
 ### Student Dashboard (`/student/dashboard`)
+- 老師佈置的任務 (only for students in a class): the latest assignments with status, due date and 「開始寫」 (→ `/submissions/new?assignment=…`) or 「看批改結果」.
 - Lists recent submissions + weakness summary (confirmed weaknesses as focus areas, improving as encouragement).
 - Coach greeting adapts to submission count (first time / returning / veteran).
 
@@ -275,6 +287,13 @@ Six top-level categories, each with subcategories:
 
 ### Teacher Dashboard (`/teacher/dashboard`)
 - Class list, recent submissions across all students in teacher's classes.
+- 寫作任務: the latest assignments with 已交 x / class size, 「佈置新任務」, and a 「佈置任務」 link on each class card.
+
+### Assignments (`/teacher/assignments/new`, `/teacher/assignments/[id]`)
+- A teacher (or admin) sets a topic, optional 文體, instructions and due date for one of their classes.
+- The task page lists every enrolled student with 未提交 / 已提交 / 遲交 / 逾期未交 (lateness judged on the first submission), the latest essay's AI level and score, whether it was reviewed, and a link to the teacher submission page.
+- It also shows the AI level spread and the class's most common problems (per subcategory: how many students' latest essays have it, excluding OCR suspects and student-flagged errors), as material for the next lesson.
+- The AI 參考範文 is locked for assigned essays until the teacher presses 「開放 AI 參考範文」 (it can be re-locked). Locked: the model-passage API returns 403 and the submission and compare pages show `ModelPassageLockedNotice`.
 
 ### Teacher Submission (`/teacher/submissions/[id]`)
 - Essay, AI feedback and annotations (with "學生回報有誤" / "OCR 可能讀錯" markers).
@@ -291,6 +310,7 @@ Six top-level categories, each with subcategories:
 - 限時模擬 (typed mode, optional): presets 135 / 90 / 45 minutes. A sticky bar shows the countdown, the phase (審題列大綱 → 寫作 → 檢查), pacing against 600 字, and warnings at 15 and 5 minutes. Paste is blocked while the timer runs; at time-up (or 「完成，交卷」) the essay locks and can still be submitted. The limit and time used are saved on the submission and shown on its page. Grading ignores timing.
 - The typed essay, topic, genre and timer are autosaved to `localStorage` (`essay-draft-v1`); on return the form offers 恢復草稿 / 捨棄, and a restored timer keeps counting from its original start. The draft is cleared after a successful submission.
 - On submit: `POST /api/submissions` with SSE streaming — progress events shown during analysis.
+- With `?assignment=<id>` (student must be enrolled in its class): a banner shows the class, topic, 文體, instructions and due date; topic and 文體 are locked, the draft is kept under its own key, and the server replaces any client-sent topic/genre with the assignment's.
 - Button disabled below 20 chars.
 
 ### Submission Detail (`/submissions/[id]`) — 9 tabs
@@ -343,7 +363,6 @@ Six top-level categories, each with subcategories:
 | Feature | Schema ready? |
 |---|---|
 | Reading practice: passage + comprehension questions | No |
-| Assignment mode (teacher assigns tasks to class) | Class model exists, no assignment flow |
 | Parent views | No |
 
 ---

@@ -6,15 +6,10 @@ import { CameraCaptureFlow } from "@/components/CameraCaptureFlow";
 import { ExamTimerPanel, type ExamTimer } from "@/components/ExamTimerPanel";
 import { TopicAnalysisPanel } from "@/components/TopicAnalysisPanel";
 import { DRAFT_KEY, parseDraft, timerSnapshot, type EssayDraft } from "@/lib/examTimer";
+import { GENRE_OPTIONS } from "@/lib/genres";
 
 const GRADES = ["P5", "P6", "S1", "S2", "S3", "S4", "S5", "S6"];
-const GENRES = [
-  { value: "", label: "自動判斷" },
-  { value: "記敘抒情文", label: "記敘／抒情" },
-  { value: "議論文", label: "議論（論說）" },
-  { value: "描寫文", label: "描寫" },
-  { value: "說明文", label: "說明" },
-] as const;
+const GENRES = [{ value: "", label: "自動判斷" }, ...GENRE_OPTIONS] as const;
 const MODES = [
   { value: "typed", label: "直接輸入", helper: "適合已經有電子文字稿" },
   { value: "photo", label: "拍照交稿", helper: "手機拍稿後核對文字再提交" },
@@ -23,14 +18,26 @@ const MODES = [
 
 type SubmissionSource = (typeof MODES)[number]["value"];
 
+// A teacher's assignment the essay is written for; its topic and genre are fixed.
+export type AssignmentBrief = {
+  id: string;
+  className: string;
+  taskPrompt: string;
+  genre: string | null;
+  instructions: string | null;
+  dueAt: string | null;
+};
+
 export function SubmissionForm({
   currentCredits,
   creditsUnlimited = false,
   defaultGradeLevel,
+  assignment = null,
 }: {
   currentCredits?: number;
   creditsUnlimited?: boolean;
   defaultGradeLevel?: string;
+  assignment?: AssignmentBrief | null;
 }) {
   const router = useRouter();
   const [text, setText] = useState("");
@@ -38,8 +45,8 @@ export function SubmissionForm({
   const [gradeLevel, setGradeLevel] = useState(
     defaultGradeLevel && GRADES.includes(defaultGradeLevel) ? defaultGradeLevel : "S2",
   );
-  const [genre, setGenre] = useState("");
-  const [taskPrompt, setTaskPrompt] = useState("");
+  const [genre, setGenre] = useState(assignment?.genre ?? "");
+  const [taskPrompt, setTaskPrompt] = useState(assignment?.taskPrompt ?? "");
   const [source, setSource] = useState<SubmissionSource>("typed");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,16 +60,18 @@ export function SubmissionForm({
   const timerFinished =
     timer !== null && (timer.finishedMs !== null || timerSnapshot(timer.startedAt, timer.minutes, now).expired);
   const timerRunning = timer !== null && !timerFinished;
+  // Each assignment keeps its own draft, separate from free writing.
+  const draftKey = assignment ? `${DRAFT_KEY}:${assignment.id}` : DRAFT_KEY;
 
   // Offer to restore an unsubmitted draft from this device.
   useEffect(() => {
     try {
-      setPendingDraft(parseDraft(window.localStorage.getItem(DRAFT_KEY)));
+      setPendingDraft(parseDraft(window.localStorage.getItem(draftKey)));
     } catch {
       // Storage unavailable (private mode): drafts are a convenience only.
     }
     setNow(Date.now());
-  }, []);
+  }, [draftKey]);
 
   useEffect(() => {
     if (!timerRunning) return;
@@ -75,17 +84,17 @@ export function SubmissionForm({
     const id = window.setTimeout(() => {
       const draft: EssayDraft = { text, taskPrompt, genre, timer, savedAt: Date.now() };
       try {
-        window.localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+        window.localStorage.setItem(draftKey, JSON.stringify(draft));
       } catch {
         // Ignore storage errors.
       }
     }, 800);
     return () => window.clearTimeout(id);
-  }, [text, taskPrompt, genre, timer, pendingDraft]);
+  }, [text, taskPrompt, genre, timer, pendingDraft, draftKey]);
 
   function clearDraft() {
     try {
-      window.localStorage.removeItem(DRAFT_KEY);
+      window.localStorage.removeItem(draftKey);
     } catch {
       // Ignore storage errors.
     }
@@ -94,8 +103,10 @@ export function SubmissionForm({
   function restoreDraft() {
     if (!pendingDraft) return;
     setText(pendingDraft.text);
-    setTaskPrompt(pendingDraft.taskPrompt);
-    setGenre(pendingDraft.genre);
+    if (!assignment) {
+      setTaskPrompt(pendingDraft.taskPrompt);
+      setGenre(pendingDraft.genre);
+    }
     setTimer(pendingDraft.timer);
     setSource("typed");
     setNow(Date.now());
@@ -132,6 +143,7 @@ export function SubmissionForm({
           ocrText: source !== "typed" && ocrText ? ocrText : undefined,
           source,
           stream: true,
+          assignmentId: assignment?.id,
           ...timedFields(),
         }),
       });
@@ -197,6 +209,22 @@ export function SubmissionForm({
 
   return (
     <form onSubmit={onSubmit} className="space-y-6">
+      {assignment ? (
+        <section className="rounded-[1.2rem] border-2 border-accent/30 bg-accent/5 px-5 py-4">
+          <p className="section-kicker">老師佈置的寫作任務・{assignment.className}</p>
+          <h2 className="mt-2 text-2xl">《{assignment.taskPrompt}》</h2>
+          <p className="mt-1 text-sm text-ink/80">
+            {assignment.genre ? `文體：${assignment.genre}` : "文體不限"}
+            {assignment.dueAt
+              ? `・截止：${new Date(assignment.dueAt).toLocaleString("zh-HK", { timeZone: "Asia/Hong_Kong", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" })}`
+              : ""}
+          </p>
+          {assignment.instructions ? (
+            <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-ink/85">{assignment.instructions}</p>
+          ) : null}
+          <p className="mt-2 text-xs text-muted">提交仍使用 1 點。AI 參考範文會在老師開放後才出現。</p>
+        </section>
+      ) : null}
       <section className="paper-panel-strong p-5 sm:p-6">
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
           <div className="space-y-4">
@@ -271,6 +299,7 @@ export function SubmissionForm({
           <select
             value={genre}
             onChange={(event) => setGenre(event.target.value)}
+            disabled={Boolean(assignment?.genre)}
             className="field-input"
           >
             {GENRES.map((item) => (
@@ -287,7 +316,8 @@ export function SubmissionForm({
             value={taskPrompt}
             onChange={(event) => setTaskPrompt(event.target.value)}
             placeholder="例：一次難忘的旅行"
-            className="field-input"
+            readOnly={Boolean(assignment)}
+            className={["field-input", assignment ? "bg-paper/60 text-ink/80" : ""].join(" ")}
           />
         </label>
       </section>

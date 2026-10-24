@@ -31,6 +31,7 @@ model AppUser {
   teacherReviews    TeacherReview[]
   topicAnalyses     TopicAnalysis[]
   practiceDrills    PracticeDrill[]
+  assignmentsCreated Assignment[]
 
   @@map("AppUser")
 }
@@ -60,8 +61,30 @@ model Class {
   createdAt           DateTime @default(now())
 
   studentClasses  StudentClass[]
+  assignments     Assignment[]
 
   @@index([teacherClerkUserId])
+}
+
+// A writing task a teacher sets for one class. Students submit against it with
+// their own credits; the AI 參考範文 stays locked until the teacher releases it.
+model Assignment {
+  id                   String    @id @default(cuid())
+  classId              String
+  createdByUserId      String
+  taskPrompt           String    @db.Text
+  genre                String?
+  instructions         String?   @db.Text
+  dueAt                DateTime?
+  modelPassageReleased Boolean   @default(false)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  class       Class        @relation(fields: [classId], references: [id], onDelete: Cascade)
+  createdBy   AppUser      @relation(fields: [createdByUserId], references: [id], onDelete: Cascade)
+  submissions Submission[]
+
+  @@index([classId, createdAt])
 }
 
 model StudentClass {
@@ -111,10 +134,12 @@ model Submission {
   genre                 String?            // 文體 chosen by the student; null = let the model decide
   timedMinutes          Int?               // 限時模擬: the time limit chosen, if the essay was written under a timer
   writingSeconds        Int?               // time actually used under the timer
+  assignmentId          String?            // set when written for a teacher's Assignment
   createdAt             DateTime           @default(now())
 
   user             AppUser              @relation(fields: [userId], references: [id], onDelete: Cascade)
   task             WritingTask?         @relation(fields: [taskId], references: [id])
+  assignment       Assignment?          @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
   analyses         Analysis[]
   errors           ErrorRecord[]
   revisionOrigin   RevisionSession[]    @relation("OriginalSubmission")
@@ -123,6 +148,7 @@ model Submission {
   teacherReviews   TeacherReview[]
 
   @@index([userId, createdAt])
+  @@index([assignmentId])
 }
 
 model Analysis {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ModelPassageLockedNotice } from "@/components/ModelPassageLockedNotice";
 import { ModelPassagePanel } from "@/components/ModelPassagePanel";
 import { NotebookQuickPanel } from "@/components/NotebookQuickPanel";
 import { RevisionSuggestionList } from "@/components/RevisionSuggestionList";
@@ -22,6 +23,8 @@ type RevisionComparisonProps = {
   remainingEvidence: { id: string; evidenceSpan: string; suggestion: string }[];
   remainingAiSuggestions: RevisionSuggestionCard[];
   initialModelPassage: StoredModelPassage | null;
+  // A teacher's assignment keeps the AI 參考範文 locked until it is released.
+  modelPassageLocked?: boolean;
   recentNotebookEntries: NotebookEntrySummary[];
   // Re-grade panel, rendered under the header.
   regradeSlot?: React.ReactNode;
@@ -41,6 +44,7 @@ export function RevisionComparison({
   remainingEvidence,
   remainingAiSuggestions,
   initialModelPassage,
+  modelPassageLocked = false,
   recentNotebookEntries,
   regradeSlot,
 }: RevisionComparisonProps) {
@@ -181,13 +185,17 @@ export function RevisionComparison({
         </div>
       </section>
 
-      <ModelPassagePanel
-        submissionId={submissionId}
-        originalText={beforeText}
-        initialPassage={initialModelPassage}
-        context="compare"
-        onNotebookEntryCreated={handleNotebookEntryCreated}
-      />
+      {modelPassageLocked ? (
+        <ModelPassageLockedNotice />
+      ) : (
+        <ModelPassagePanel
+          submissionId={submissionId}
+          originalText={beforeText}
+          initialPassage={initialModelPassage}
+          context="compare"
+          onNotebookEntryCreated={handleNotebookEntryCreated}
+        />
+      )}
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { RegradePanel } from "@/components/RegradePanel";
 import { RevisionComparison } from "@/components/RevisionComparison";
 import { StatePanel } from "@/components/StatePanel";
 import { isGlobalUnlimitedCreditsEnabled } from "@/lib/credits";
+import { modelPassageLocked } from "@/lib/assignments";
 import { serializeModelPassage } from "@/lib/modelPassage";
 import { serializeNotebookEntry } from "@/lib/notebook";
 import { normalizeRevisionPriorities } from "@/lib/revisionPriority";
@@ -30,6 +31,7 @@ export default async function SubmissionComparePage(props: { params: Promise<{ i
         errors: { orderBy: { charOffsetStart: "asc" } },
         revisionOrigin: { orderBy: { createdAt: "desc" }, take: 1 },
         aiModelPassage: true,
+        assignment: { select: { modelPassageReleased: true } },
       },
     }),
     prisma.notebookEntry.findMany({
@@ -134,6 +136,7 @@ export default async function SubmissionComparePage(props: { params: Promise<{ i
         remainingEvidence={remainingEvidence}
         remainingAiSuggestions={remainingAiSuggestions}
         initialModelPassage={submission.aiModelPassage ? serializeModelPassage(submission.aiModelPassage) : null}
+        modelPassageLocked={modelPassageLocked(submission)}
         recentNotebookEntries={recentNotebookEntries.map(serializeNotebookEntry)}
         regradeSlot={
           <RegradePanel
