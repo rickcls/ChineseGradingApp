@@ -2,9 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { type UserRole } from "@prisma/client";
-import { CreditAdjustmentForm } from "@/components/admin/CreditAdjustmentForm";
-import { RoleUpdateForm } from "@/components/admin/RoleUpdateForm";
-import { UnlimitedCreditsForm } from "@/components/admin/UnlimitedCreditsForm";
+import { UserManageForm } from "@/components/admin/UserManageForm";
 
 export type AdminDirectoryUser = {
   id: string;
@@ -39,10 +37,12 @@ export function AdminUserDirectory({
   users,
   legacyUserCount,
   globalUnlimitedCredits,
+  currentClerkUserId,
 }: {
   users: AdminDirectoryUser[];
   legacyUserCount: number;
   globalUnlimitedCredits: boolean;
+  currentClerkUserId: string;
 }) {
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
@@ -56,7 +56,7 @@ export function AdminUserDirectory({
       students: users.filter((user) => user.role === "student").length,
       teachers: users.filter((user) => user.role === "teacher").length,
       admins: users.filter((user) => user.role === "admin").length,
-      unlimited: users.filter((user) => user.unlimitedCredits).length,
+      unlimited: users.filter((user) => user.unlimitedCredits || user.role === "admin").length,
     }),
     [users],
   );
@@ -70,11 +70,9 @@ export function AdminUserDirectory({
           !normalizedQuery ||
           [user.name, user.email ?? "", user.clerkUserId].some((value) => value.toLowerCase().includes(normalizedQuery));
         const matchesRole = roleFilter === "all" || user.role === roleFilter;
+        const unlimited = user.unlimitedCredits || user.role === "admin";
         const matchesCredits =
-          creditFilter === "all" ||
-          (creditFilter === "unlimited"
-            ? globalUnlimitedCredits || user.unlimitedCredits
-            : !globalUnlimitedCredits && !user.unlimitedCredits);
+          creditFilter === "all" || (creditFilter === "unlimited" ? unlimited : !unlimited);
 
         return matchesQuery && matchesRole && matchesCredits;
       })
@@ -87,7 +85,7 @@ export function AdminUserDirectory({
         }
         return new Date(b.createdAtIso).getTime() - new Date(a.createdAtIso).getTime();
       });
-  }, [creditFilter, globalUnlimitedCredits, query, roleFilter, sortKey, users]);
+  }, [creditFilter, query, roleFilter, sortKey, users]);
 
   const selectedUser =
     filteredUsers.find((user) => user.clerkUserId === selectedClerkUserId) ?? filteredUsers[0] ?? null;
@@ -109,7 +107,7 @@ export function AdminUserDirectory({
           <Stat label="學生" value={stats.students} />
           <Stat label="老師" value={stats.teachers} />
           <Stat label="管理員" value={stats.admins} />
-          <Stat label="無限點數" value={globalUnlimitedCredits ? stats.total : stats.unlimited} />
+          <Stat label="無限點數" value={stats.unlimited} />
         </div>
       </div>
 
@@ -120,7 +118,7 @@ export function AdminUserDirectory({
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="姓名、電郵或 Clerk ID"
+              placeholder="姓名或電郵"
               className="field-input"
             />
           </label>
@@ -232,7 +230,6 @@ export function AdminUserDirectory({
                         <td className="border-b border-border/60 px-4 py-3 align-middle">
                           <div className="font-medium text-ink">{user.name}</div>
                           <div className="mt-1 break-all text-xs text-muted">{user.email || "未有電郵"}</div>
-                          <div className="mt-1 break-all font-mono text-[0.68rem] text-muted">{user.clerkUserId}</div>
                         </td>
                         <td className="border-b border-border/60 px-4 py-3 align-middle">
                           <span className="pill">{ROLE_LABELS[user.role]}</span>
@@ -264,9 +261,13 @@ export function AdminUserDirectory({
                         <CreditBadge user={user} globalUnlimitedCredits={globalUnlimitedCredits} />
                       </div>
                     </div>
-                    <div className="mt-2 break-all font-mono text-[0.68rem] text-muted">{user.clerkUserId}</div>
                   </summary>
-                  <UserManagementPanel user={user} globalUnlimitedCredits={globalUnlimitedCredits} compact />
+                  <UserManagementPanel
+                    user={user}
+                    globalUnlimitedCredits={globalUnlimitedCredits}
+                    isSelf={user.clerkUserId === currentClerkUserId}
+                    compact
+                  />
                 </details>
               ))}
             </div>
@@ -279,7 +280,12 @@ export function AdminUserDirectory({
           <aside className="hidden xl:block">
             <div className="paper-panel sticky top-4 p-5">
               {selectedUser ? (
-                <UserManagementPanel user={selectedUser} globalUnlimitedCredits={globalUnlimitedCredits} />
+                <UserManagementPanel
+                  key={selectedUser.clerkUserId}
+                  user={selectedUser}
+                  globalUnlimitedCredits={globalUnlimitedCredits}
+                  isSelf={selectedUser.clerkUserId === currentClerkUserId}
+                />
               ) : (
                 <p className="text-sm text-muted">選取一位用戶後即可管理角色與點數。</p>
               )}
@@ -300,6 +306,8 @@ function Stat({ label, value }: { label: string; value: number }) {
   );
 }
 
+// Shows the rule that applies right now, and the balance that applies once the
+// site-wide test switch is turned off.
 function CreditBadge({
   user,
   globalUnlimitedCredits,
@@ -307,20 +315,27 @@ function CreditBadge({
   user: AdminDirectoryUser;
   globalUnlimitedCredits: boolean;
 }) {
-  return (
-    <span className={globalUnlimitedCredits || user.unlimitedCredits ? "pill pill-positive" : "pill"}>
-      {globalUnlimitedCredits || user.unlimitedCredits ? "無限點數" : `${user.credits} 點`}
-    </span>
-  );
+  if (user.role === "admin") return <span className="pill pill-positive">管理員不扣點</span>;
+  if (user.unlimitedCredits) return <span className="pill pill-positive">無限點數</span>;
+  if (globalUnlimitedCredits) {
+    return (
+      <span className="pill pill-positive" title="全站無限點數（測試）開啟中；關閉後按此餘額扣點">
+        全站無限・餘額 {user.credits} 點
+      </span>
+    );
+  }
+  return <span className="pill">{user.credits} 點</span>;
 }
 
 function UserManagementPanel({
   user,
   globalUnlimitedCredits,
+  isSelf,
   compact = false,
 }: {
   user: AdminDirectoryUser;
   globalUnlimitedCredits: boolean;
+  isSelf: boolean;
   compact?: boolean;
 }) {
   return (
@@ -334,20 +349,15 @@ function UserManagementPanel({
         <CreditBadge user={user} globalUnlimitedCredits={globalUnlimitedCredits} />
       </div>
 
-      <div className="mt-5 space-y-5">
-        <div>
-          <span className="field-label">角色</span>
-          <RoleUpdateForm targetClerkUserId={user.clerkUserId} currentRole={user.role} />
-        </div>
-        <div>
-          <span className="field-label">測試點數</span>
-          <UnlimitedCreditsForm targetClerkUserId={user.clerkUserId} enabled={user.unlimitedCredits} />
-        </div>
-        <div>
-          <span className="field-label">調整點數</span>
-          <CreditAdjustmentForm targetClerkUserId={user.clerkUserId} />
-        </div>
+      <div className="mt-5">
+        <UserManageForm user={user} isSelf={isSelf} />
       </div>
+
+      <details className="mt-5 text-xs text-muted">
+        <summary className="cursor-pointer">技術資料</summary>
+        <p className="mt-2 break-all font-mono">Clerk ID：{user.clerkUserId}</p>
+        <p className="mt-1">建立日期：{user.createdAtLabel}</p>
+      </details>
     </div>
   );
 }

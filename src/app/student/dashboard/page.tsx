@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { requireRole } from "@/lib/auth";
-import { isGlobalUnlimitedCreditsEnabled } from "@/lib/credits";
+import { hasUnlimitedCredits } from "@/lib/credits";
 import { PROGRESS_LABEL, assignmentProgress, studentAssignmentWhere } from "@/lib/assignments";
 import { CoachCard } from "@/components/CoachCard";
 import { StatePanel } from "@/components/StatePanel";
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 export default async function StudentDashboardPage() {
   const { appUser: user } = await requireRole(["student", "admin"]);
-  const creditsUnlimited = isGlobalUnlimitedCreditsEnabled() || user.unlimitedCredits;
+  const creditsUnlimited = hasUnlimitedCredits(user);
   const [submissions, submissionStats, totalSubmissionCount, revisionsStarted, confirmed, improving, assignments] = await Promise.all([
     prisma.submission.findMany({
       where: { userId: user.id },
@@ -89,7 +89,13 @@ export default async function StudentDashboardPage() {
             <MetricCard
               label="可用點數"
               value={creditsUnlimited ? "無限" : `${user.credits}`}
-              hint={creditsUnlimited ? "UAT 或測試帳戶模式，不會扣點" : "每提交一篇文章會使用 1 點"}
+              hint={
+                creditsUnlimited
+                  ? user.role === "admin"
+                    ? "管理員試用，不會扣點"
+                    : "UAT 或測試帳戶模式，不會扣點"
+                  : "每提交一篇文章會使用 1 點"
+              }
               tone="primary"
             />
             <MetricCard label="已寫文章" value={`${totalSubmissionCount}`} hint="每一篇都在累積你的寫作肌肉" />

@@ -2,9 +2,8 @@ import { headers } from "next/headers";
 import { Webhook } from "svix";
 import { type UserJSON, type WebhookEvent } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db";
+import { INITIAL_CREDIT_REASON, INITIAL_FREE_CREDITS } from "@/lib/signupCredits";
 
-const INITIAL_FREE_CREDITS = 3;
-const INITIAL_CREDIT_REASON = "initial_free_credits";
 
 export async function POST(req: Request) {
   const secret = process.env.CLERK_WEBHOOK_SECRET;

@@ -36,8 +36,10 @@ export default async function TeacherDashboardPage() {
       })
     : [];
 
+  // Admins see every student's work, but not their own test essays.
   const submissions = isAdmin
     ? await prisma.submission.findMany({
+        where: { user: { role: { not: "admin" } } },
         orderBy: { createdAt: "desc" },
         take: 30,
         include: {

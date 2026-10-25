@@ -5,10 +5,9 @@ import { redirect } from "next/navigation";
 import { auth, clerkClient, currentUser } from "@clerk/nextjs/server";
 import { type AppUser, type UserRole } from "@prisma/client";
 import { prisma } from "./db";
+import { INITIAL_CREDIT_REASON, INITIAL_FREE_CREDITS } from "./signupCredits";
 
 const LEGACY_COOKIE = "ccoach_uid";
-const INITIAL_FREE_CREDITS = 3;
-const INITIAL_CREDIT_REASON = "initial_free_credits";
 
 const ROLES = new Set<UserRole>(["student", "teacher", "admin"]);
 
